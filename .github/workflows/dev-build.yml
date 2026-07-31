@@ -1,41 +1,35 @@
 name: Dev Build
-
 on:
   workflow_dispatch:
   push:
-    branches: ["**"]
-  pull_request:
-
+    branches: ["main"]
 permissions:
   contents: read
-
 concurrency:
-  group: dev-build-${{ github.workflow }}-${{ github.ref }}
+  group: dev-build-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
   build:
     runs-on: macos-26
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Install XcodeGen
         run: brew install xcodegen
-
-      - name: Cache bundled mlx-vlm server distribution
+      - name: Cache pip wheels
         uses: actions/cache@v4
         with:
-          path: |
-            dist/mlx-vlm-server
-            .cache/python-build-standalone
-          key: mlx-vlm-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('PythonDistribution/**') }}
-
-      - name: Cache Swift package dependencies
-        uses: actions/cache@v4
-        with:
-          path: build/XcodeDerivedData/SourcePackages
-          key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
-
+          path: ~/Library/Caches/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('PythonDistribution/Requirements/mlx-vlm-server-macos-arm64.txt') }}
       - name: Build app (unsigned Debug)
         run: make xcode-build
+      - name: Zip app bundle
+        run: |
+          set -euo pipefail
+          cd build/XcodeDerivedData/Build/Products/Debug
+          ditto -c -k --keepParent Nativ.app Nativ-dev.zip
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nativ-dev-${{ github.sha }}
+          path: build/XcodeDerivedData/Build/Products/Debug/Nativ-dev.zip
+          retention-days: 7
