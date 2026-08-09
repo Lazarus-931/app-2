@@ -2,6 +2,41 @@ import XCTest
 @testable import NativServerKit
 
 final class NativSettingsTests: XCTestCase {
+    func testSidebarNavigationSectionCollapseStateDefaultsAndRoundTrips() throws {
+        var settings = NativSettings()
+
+        XCTAssertFalse(settings.sidebarLibraryCollapsed)
+        XCTAssertFalse(settings.sidebarInsightsCollapsed)
+        XCTAssertFalse(settings.sidebarDeveloperCollapsed)
+
+        settings.sidebarLibraryCollapsed = true
+        settings.sidebarInsightsCollapsed = true
+        settings.sidebarDeveloperCollapsed = true
+
+        let decoded = try JSONDecoder().decode(
+            NativSettings.self,
+            from: JSONEncoder().encode(settings)
+        )
+
+        XCTAssertTrue(decoded.sidebarLibraryCollapsed)
+        XCTAssertTrue(decoded.sidebarInsightsCollapsed)
+        XCTAssertTrue(decoded.sidebarDeveloperCollapsed)
+    }
+
+    func testCollapsingAllSidebarSectionsIncludesNavigationSections() {
+        var settings = NativSettings()
+
+        settings.setAllSidebarSectionsCollapsed(true)
+
+        XCTAssertTrue(settings.allSidebarSectionsCollapsed)
+
+        settings.setAllSidebarSectionsCollapsed(false)
+
+        XCTAssertFalse(settings.sidebarLibraryCollapsed)
+        XCTAssertFalse(settings.sidebarInsightsCollapsed)
+        XCTAssertFalse(settings.sidebarDeveloperCollapsed)
+    }
+
     func testLaunchArgumentsRouteEachPreloadedModelToItsOwnFlag() {
         let settings = NativSettings(
             languageModelID: "org/language",

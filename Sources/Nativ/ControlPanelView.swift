@@ -5,6 +5,29 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum ControlPanelTab: String, CaseIterable, Identifiable {
+    enum SidebarSection: String, CaseIterable, Identifiable {
+        case library = "Library"
+        case insights = "Insights"
+        case developer = "Developer"
+
+        var id: String { rawValue }
+
+        var collapseKeyPath: WritableKeyPath<NativSettings, Bool> {
+            switch self {
+            case .library:
+                \.sidebarLibraryCollapsed
+            case .insights:
+                \.sidebarInsightsCollapsed
+            case .developer:
+                \.sidebarDeveloperCollapsed
+            }
+        }
+
+        var tabs: [ControlPanelTab] {
+            ControlPanelTab.allCases.filter { $0.sidebarSection == self }
+        }
+    }
+
     case chat = "Chat"
     case imageGeneration = "Images"
     case artifacts = "Artifacts"
@@ -31,6 +54,19 @@ enum ControlPanelTab: String, CaseIterable, Identifiable {
     }
 
     var id: String { rawValue }
+
+    var sidebarSection: SidebarSection? {
+        switch self {
+        case .models, .extensions:
+            .library
+        case .dashboard, .system:
+            .insights
+        case .integrations, .developer:
+            .developer
+        case .chat, .imageGeneration, .artifacts, .settings:
+            nil
+        }
+    }
 
     var systemImage: String {
         switch self {
@@ -718,8 +754,8 @@ struct ControlPanelView: View {
     }
 
     private var sidebarNavigation: some View {
-        VStack(spacing: 0) {
-            ForEach(ControlPanelTab.allCases) { tab in
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(ControlPanelTab.allCases.filter { $0.sidebarSection == nil }) { tab in
                 sidebarTabButton(tab)
 
                 if tab == .imageGeneration {
@@ -728,7 +764,36 @@ struct ControlPanelView: View {
                     }
                 }
             }
+
+            ForEach(ControlPanelTab.SidebarSection.allCases) { section in
+                sidebarNavigationSection(section)
+            }
         }
+    }
+
+    private func sidebarNavigationSection(
+        _ section: ControlPanelTab.SidebarSection
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sidebarSectionHeader(
+                title: section.rawValue,
+                isCollapsed: model.settings[keyPath: section.collapseKeyPath],
+                onToggle: { model.settings[keyPath: section.collapseKeyPath].toggle() }
+            ) {
+                EmptyView()
+            }
+            .padding(.leading, 8)
+            .padding(.trailing, 10)
+            .padding(.bottom, 4)
+
+            if !model.settings[keyPath: section.collapseKeyPath] {
+                ForEach(section.tabs) { tab in
+                    sidebarTabButton(tab)
+                }
+                .transition(.slide)
+            }
+        }
+        .padding(.top, 12)
     }
 
     private func sidebarTabButton(_ tab: ControlPanelTab) -> some View {
@@ -2045,6 +2110,7 @@ struct ControlPanelView: View {
     private func applySidebarSelection(_ selection: ControlPanelSidebarSelection) {
         switch selection {
         case .tab(let tab):
+            revealSidebarNavigationSection(containing: tab)
             if tab == .extensions {
                 isExtensionsBadgeDismissed = true
             }
@@ -2083,6 +2149,14 @@ struct ControlPanelView: View {
             }
             selectedTab = .imageGeneration
         }
+    }
+
+    private func revealSidebarNavigationSection(containing tab: ControlPanelTab) {
+        guard let section = tab.sidebarSection else {
+            return
+        }
+
+        revealSidebarSection(section.collapseKeyPath)
     }
 
     private var detailTitleLeadingInset: CGFloat {

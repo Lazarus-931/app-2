@@ -369,6 +369,9 @@ struct NativSettings: Codable, Equatable {
     var sidebarPinnedCollapsed: Bool
     var sidebarFoldersCollapsed: Bool
     var sidebarSessionsCollapsed: Bool
+    var sidebarLibraryCollapsed: Bool
+    var sidebarInsightsCollapsed: Bool
+    var sidebarDeveloperCollapsed: Bool
     var modelConfigs: [String: ModelConfigProfile]
 
     init(
@@ -419,6 +422,9 @@ struct NativSettings: Codable, Equatable {
         sidebarPinnedCollapsed: Bool = false,
         sidebarFoldersCollapsed: Bool = false,
         sidebarSessionsCollapsed: Bool = false,
+        sidebarLibraryCollapsed: Bool = false,
+        sidebarInsightsCollapsed: Bool = false,
+        sidebarDeveloperCollapsed: Bool = false,
         modelConfigs: [String: ModelConfigProfile] = [:]
     ) {
         self.modelSearchPath = modelSearchPath
@@ -468,6 +474,9 @@ struct NativSettings: Codable, Equatable {
         self.sidebarPinnedCollapsed = sidebarPinnedCollapsed
         self.sidebarFoldersCollapsed = sidebarFoldersCollapsed
         self.sidebarSessionsCollapsed = sidebarSessionsCollapsed
+        self.sidebarLibraryCollapsed = sidebarLibraryCollapsed
+        self.sidebarInsightsCollapsed = sidebarInsightsCollapsed
+        self.sidebarDeveloperCollapsed = sidebarDeveloperCollapsed
         self.modelConfigs = modelConfigs
     }
 
@@ -520,6 +529,9 @@ struct NativSettings: Codable, Equatable {
         case sidebarPinnedCollapsed
         case sidebarFoldersCollapsed
         case sidebarSessionsCollapsed
+        case sidebarLibraryCollapsed
+        case sidebarInsightsCollapsed
+        case sidebarDeveloperCollapsed
         case modelConfigs
     }
 
@@ -575,6 +587,9 @@ struct NativSettings: Codable, Equatable {
         sidebarPinnedCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarPinnedCollapsed) ?? defaults.sidebarPinnedCollapsed
         sidebarFoldersCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarFoldersCollapsed) ?? defaults.sidebarFoldersCollapsed
         sidebarSessionsCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarSessionsCollapsed) ?? defaults.sidebarSessionsCollapsed
+        sidebarLibraryCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarLibraryCollapsed) ?? defaults.sidebarLibraryCollapsed
+        sidebarInsightsCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarInsightsCollapsed) ?? defaults.sidebarInsightsCollapsed
+        sidebarDeveloperCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarDeveloperCollapsed) ?? defaults.sidebarDeveloperCollapsed
         modelConfigs = try container.decodeIfPresent([String: ModelConfigProfile].self, forKey: .modelConfigs) ?? defaults.modelConfigs
     }
 
@@ -626,6 +641,9 @@ struct NativSettings: Codable, Equatable {
         try container.encode(sidebarPinnedCollapsed, forKey: .sidebarPinnedCollapsed)
         try container.encode(sidebarFoldersCollapsed, forKey: .sidebarFoldersCollapsed)
         try container.encode(sidebarSessionsCollapsed, forKey: .sidebarSessionsCollapsed)
+        try container.encode(sidebarLibraryCollapsed, forKey: .sidebarLibraryCollapsed)
+        try container.encode(sidebarInsightsCollapsed, forKey: .sidebarInsightsCollapsed)
+        try container.encode(sidebarDeveloperCollapsed, forKey: .sidebarDeveloperCollapsed)
         try container.encode(modelConfigs, forKey: .modelConfigs)
     }
 
@@ -784,13 +802,21 @@ struct NativSettings: Codable, Equatable {
     }
 
     var allSidebarSectionsCollapsed: Bool {
-        sidebarPinnedCollapsed && sidebarFoldersCollapsed && sidebarSessionsCollapsed
+        sidebarPinnedCollapsed
+            && sidebarFoldersCollapsed
+            && sidebarSessionsCollapsed
+            && sidebarLibraryCollapsed
+            && sidebarInsightsCollapsed
+            && sidebarDeveloperCollapsed
     }
 
     mutating func setAllSidebarSectionsCollapsed(_ collapsed: Bool) {
         sidebarPinnedCollapsed = collapsed
         sidebarFoldersCollapsed = collapsed
         sidebarSessionsCollapsed = collapsed
+        sidebarLibraryCollapsed = collapsed
+        sidebarInsightsCollapsed = collapsed
+        sidebarDeveloperCollapsed = collapsed
     }
 
     var speculativeDecodingActive: Bool {
