@@ -151,7 +151,7 @@ final class CustomToolTests: XCTestCase {
             name: "Broken",
             summary: "Does not compile.",
             kind: .script,
-            script: "if then",
+            script: ")",
             scriptLanguage: .shell,
             parametersJSON: CustomTool.defaultParametersJSON
         )
