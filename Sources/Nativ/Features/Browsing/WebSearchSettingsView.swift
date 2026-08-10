@@ -9,11 +9,16 @@ final class WebSearchSettingsViewModel: ObservableObject {
         case issue(WebSearchCredentialIssue)
     }
 
+    enum Status: Equatable {
+        case connected(String)
+        case failure(String)
+    }
+
     @Published var selectedProvider: WebSearchProvider
     @Published var draftAPIKey = ""
     @Published var revealsKey = false
     @Published private(set) var isTesting = false
-    @Published private(set) var statusMessage: String?
+    @Published private(set) var status: Status?
     @Published private(set) var connectionStates: [WebSearchProvider: ConnectionState] = [:]
 
     private let preferences: WebSearchPreferences
@@ -45,7 +50,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
         selectedProvider = provider
         draftAPIKey = ""
         revealsKey = false
-        statusMessage = nil
+        status = nil
         if connectionStates[provider] == .connected {
             preferences.activeProvider = provider
         }
@@ -56,7 +61,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
         guard !apiKey.isEmpty, !isTesting else { return }
         let provider = selectedProvider
         isTesting = true
-        statusMessage = nil
+        status = nil
 
         defer { isTesting = false }
         do {
@@ -68,11 +73,11 @@ final class WebSearchSettingsViewModel: ObservableObject {
             if selectedProvider == provider {
                 draftAPIKey = ""
                 revealsKey = false
-                statusMessage = "Connected to \(provider.metadata.displayName)."
+                status = .connected("Connected to \(provider.metadata.displayName).")
             }
         } catch {
             if selectedProvider == provider {
-                statusMessage = error.localizedDescription
+                status = .failure(error.localizedDescription)
             }
         }
     }
@@ -85,9 +90,9 @@ final class WebSearchSettingsViewModel: ObservableObject {
             connectionStates[provider] = .disconnected
             draftAPIKey = ""
             revealsKey = false
-            statusMessage = nil
+            status = nil
         } catch {
-            statusMessage = error.localizedDescription
+            status = .failure(error.localizedDescription)
         }
     }
 
@@ -106,7 +111,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
             } catch {
                 connectionStates[provider] = .disconnected
                 if provider == selectedProvider {
-                    statusMessage = "Nativ could not read this provider's API key from Keychain."
+                    status = .failure("Nativ could not read this provider's API key from Keychain.")
                 }
             }
         }
@@ -252,11 +257,17 @@ struct WebSearchSettingsView: View {
 
     @ViewBuilder
     private var statusView: some View {
-        if let message = viewModel.statusMessage {
-            let connected = viewModel.selectedConnectionState == .connected
-            Label(message, systemImage: connected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
-                .foregroundStyle(connected ? Color.green : Color.red)
+        if let status = viewModel.status {
+            switch status {
+            case .connected(let message):
+                Label(message, systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.green)
+            case .failure(let message):
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+            }
         } else {
             switch viewModel.selectedConnectionState {
             case .disconnected:

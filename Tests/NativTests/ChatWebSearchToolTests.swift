@@ -358,7 +358,9 @@ final class ChatWebSearchToolTests: XCTestCase {
 
         XCTAssertEqual(credentials.storedKey(for: .brave), "working-key")
         XCTAssertEqual(viewModel.selectedConnectionState, .connected)
-        XCTAssertNotNil(viewModel.statusMessage)
+        guard case .failure = viewModel.status else {
+            return XCTFail("Expected the rejected replacement to show an error")
+        }
     }
 
     private func makeWebSearchCall(query: String) -> MLXChatToolCall {
@@ -381,5 +383,4 @@ final class ChatWebSearchToolTests: XCTestCase {
         let data = try XCTUnwrap(request.httpBody)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
-
 }
