@@ -143,7 +143,8 @@ struct WebSearchResult: Codable, Equatable, Sendable {
         guard let rawURL = url?.trimmingCharacters(in: .whitespacesAndNewlines),
               rawURL.count <= 2_048,
               let parsedURL = URL(string: rawURL),
-              ["http", "https"].contains(parsedURL.scheme?.lowercased()) else {
+              ["http", "https"].contains(parsedURL.scheme?.lowercased()),
+              parsedURL.host?.isEmpty == false else {
             return nil
         }
         let normalizedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -336,6 +337,8 @@ struct WebSearchService: Sendable {
         let urlResponse: URLResponse
         do {
             (data, urlResponse) = try await client.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw WebSearchError.providerUnavailable(provider)
         }
