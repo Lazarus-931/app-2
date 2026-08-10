@@ -46,19 +46,12 @@ enum ChatToolRegistry {
     }
 
     static func descriptors(canEditImage: Bool) -> [ChatNativeToolDescriptor] {
-        var tools = ChatImageToolRegistry.definitions(canEdit: canEditImage).map {
-            ChatNativeToolDescriptor(definition: $0, configuration: nil)
-        }
-        tools += ChatSystemMonitorToolRegistry.definitions().map {
-            ChatNativeToolDescriptor(definition: $0, configuration: nil)
-        }
-        tools += ChatModelLibraryToolRegistry.definitions().map {
-            ChatNativeToolDescriptor(definition: $0, configuration: nil)
-        }
-        tools += ChatServerStatsToolRegistry.definitions().map {
-            ChatNativeToolDescriptor(definition: $0, configuration: nil)
-        }
-        tools += ChatSwitchModelToolRegistry.definitions().map {
+        var definitions = ChatImageToolRegistry.definitions(canEdit: canEditImage)
+        definitions += ChatSystemMonitorToolRegistry.definitions()
+        definitions += ChatModelLibraryToolRegistry.definitions()
+        definitions += ChatServerStatsToolRegistry.definitions()
+        definitions += ChatSwitchModelToolRegistry.definitions()
+        var tools = definitions.map {
             ChatNativeToolDescriptor(definition: $0, configuration: nil)
         }
         tools.append(ChatNativeToolDescriptor(

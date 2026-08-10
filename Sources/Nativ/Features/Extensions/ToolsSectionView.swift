@@ -91,8 +91,7 @@ struct ToolsSectionView: View {
                 title: pair.displayName,
                 detail: def?.function.description ?? "",
                 parameters: def?.function.parameters,
-                isRunnable: true,
-                configuration: nil
+                isRunnable: true
             )
         }
     }
@@ -105,7 +104,7 @@ struct ToolItem: Identifiable {
     let detail: String
     var parameters: MLXJSONValue?
     var isRunnable: Bool = false
-    var configuration: ChatNativeToolConfiguration?
+    var configuration: ChatNativeToolConfiguration? = nil
 }
 
 private struct ToolRow: View {
