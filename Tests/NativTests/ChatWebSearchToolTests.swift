@@ -226,8 +226,20 @@ final class ChatWebSearchToolTests: XCTestCase {
         }
     }
 
+    func testToolDefinitionDocumentsActionableFailures() {
+        let description = ChatWebSearchToolRegistry.definition.function.description
+
+        XCTAssertTrue(description.contains("missing_api_key"))
+        XCTAssertTrue(description.contains("invalid_authentication"))
+        XCTAssertTrue(description.contains("insufficient_funds"))
+        XCTAssertTrue(description.contains("plan_access"))
+        XCTAssertTrue(description.contains("rate_limited"))
+        XCTAssertTrue(description.contains("Extensions → Tools → web_search"))
+    }
+
     func testWebSearchResultRejectsUnsafeURLsAndBoundsFields() throws {
         XCTAssertNil(WebSearchResult(title: "Bad", url: "javascript:alert(1)", snippet: "Bad"))
+        XCTAssertNil(WebSearchResult(title: "Secret", url: "https://user:password@example.com", snippet: "Bad"))
         let result = try XCTUnwrap(WebSearchResult(
             title: String(repeating: "t", count: 170),
             url: "https://example.com",

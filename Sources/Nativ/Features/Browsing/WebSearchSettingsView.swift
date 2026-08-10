@@ -118,10 +118,15 @@ final class WebSearchSettingsViewModel: ObservableObject {
     }
 }
 
+@MainActor
 struct WebSearchSettingsView: View {
     @StateObject private var viewModel: WebSearchSettingsViewModel
 
-    init(viewModel: WebSearchSettingsViewModel = WebSearchSettingsViewModel()) {
+    init() {
+        _viewModel = StateObject(wrappedValue: WebSearchSettingsViewModel())
+    }
+
+    init(viewModel: WebSearchSettingsViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
     }
 
@@ -177,6 +182,7 @@ struct WebSearchSettingsView: View {
             }
             .buttonStyle(.plain)
             .help("Open \(provider.metadata.displayName) API key setup")
+            .accessibilityLabel("Open \(provider.metadata.displayName) API key setup")
         }
         .background(
             provider == viewModel.selectedProvider ? Color.accentColor.opacity(0.12) : .clear,
@@ -296,12 +302,14 @@ private struct ProviderLogo: View {
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
+                    .accessibilityHidden(true)
             } else {
                 Image(systemName: "globe")
                     .resizable()
                     .scaledToFit()
                     .foregroundStyle(.secondary)
                     .padding(3)
+                    .accessibilityHidden(true)
             }
         }
         .frame(width: size, height: size)
