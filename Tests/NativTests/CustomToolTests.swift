@@ -122,7 +122,10 @@ final class CustomToolTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Content-Type"), "application/json")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer secret")
-        XCTAssertEqual(String(data: try XCTUnwrap(request.httpBody), encoding: .utf8), #"{"query":"Boston"}"#)
+        XCTAssertEqual(
+            String(data: try XCTUnwrap(StubURLProtocol.lastRequestBody), encoding: .utf8),
+            #"{"query":"Boston"}"#
+        )
     }
 
     func testShellScriptIsCheckedAndExecuted() async throws {
@@ -173,6 +176,7 @@ private struct FixedCredentialStore: CustomToolCredentialStoring {
 
 private final class StubURLProtocol: URLProtocol {
     static var lastRequest: URLRequest?
+    static var lastRequestBody: Data?
     static var responseData = Data()
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -180,6 +184,7 @@ private final class StubURLProtocol: URLProtocol {
 
     override func startLoading() {
         Self.lastRequest = request
+        Self.lastRequestBody = requestBody()
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 200,
@@ -195,6 +200,26 @@ private final class StubURLProtocol: URLProtocol {
 
     static func reset() {
         lastRequest = nil
+        lastRequestBody = nil
         responseData = Data()
+    }
+
+    private func requestBody() -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4_096)
+        while stream.hasBytesAvailable {
+            let count = buffer.withUnsafeMutableBytes { bytes in
+                stream.read(bytes.bindMemory(to: UInt8.self).baseAddress!, maxLength: bytes.count)
+            }
+            guard count >= 0 else { return nil }
+            if count == 0 { break }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+        return data
     }
 }
