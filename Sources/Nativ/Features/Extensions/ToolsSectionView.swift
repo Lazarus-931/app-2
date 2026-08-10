@@ -4,17 +4,14 @@ import SwiftUI
 struct ToolsSectionView: View {
     @ObservedObject var host: MCPHostManager
     @ObservedObject var model: NativModel
-    var onAddViaMCP: () -> Void = {}
     @State private var inspecting: ToolItem?
 
     var body: some View {
         HubSectionScaffold(
             title: "Tools",
-            subtitle: "Capabilities tool-capable models can call. Select a tool to inspect or try it."
+            subtitle: "Built-in capabilities and tools from connected servers. Select one to inspect or try it."
         ) {
-            Button(action: onAddViaMCP) {
-                Label("Add via MCP", systemImage: "plus")
-            }
+            EmptyView()
         } content: {
             VStack(alignment: .leading, spacing: 22) {
                 toolGroup(title: "Built-in", tools: nativeTools)
