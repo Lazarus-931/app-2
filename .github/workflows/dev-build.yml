@@ -37,8 +37,16 @@ jobs:
           path: build/XcodeDerivedData/SourcePackages
           key: spm-${{ runner.os }}-${{ hashFiles('project.yml') }}
 
-      - name: Build app (unsigned Debug)
-        run: make xcode-build
+      - name: Test and build app (unsigned Debug)
+        run: |
+          xcodegen generate
+          xcodebuild \
+            -project Nativ.xcodeproj \
+            -scheme Nativ \
+            -configuration Debug \
+            -derivedDataPath build/NativDevelopmentDerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            test
 
       - name: Zip app
         run: |
