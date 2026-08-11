@@ -46,6 +46,17 @@ enum ChatNativeToolConfiguration: Equatable {
 struct ChatNativeToolDescriptor {
     let definition: MLXChatToolDefinition
     let configuration: ChatNativeToolConfiguration?
+    let isAutomatic: Bool
+
+    init(
+        definition: MLXChatToolDefinition,
+        configuration: ChatNativeToolConfiguration?,
+        isAutomatic: Bool = false
+    ) {
+        self.definition = definition
+        self.configuration = configuration
+        self.isAutomatic = isAutomatic
+    }
 }
 
 enum ChatToolRegistry {
@@ -60,7 +71,14 @@ enum ChatToolRegistry {
         definitions += ChatServerStatsToolRegistry.definitions()
         definitions += ChatSwitchModelToolRegistry.definitions()
         var tools = definitions.map {
-            ChatNativeToolDescriptor(definition: $0, configuration: nil)
+            ChatNativeToolDescriptor(
+                definition: $0,
+                configuration: nil,
+                isAutomatic: [
+                    ChatImageToolRegistry.generateToolName,
+                    ChatImageToolRegistry.editToolName,
+                ].contains($0.function.name)
+            )
         }
         tools.append(ChatNativeToolDescriptor(
             definition: ChatWebSearchToolRegistry.definition,

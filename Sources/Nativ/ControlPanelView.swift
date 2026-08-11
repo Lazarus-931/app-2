@@ -1635,7 +1635,8 @@ struct ControlPanelView: View {
                 title: routine.name.isEmpty ? "Routine" : routine.name,
                 createdAt: now,
                 updatedAt: now,
-                messages: []
+                messages: [],
+                capabilitySelection: .empty
             )
             ChatSessionStore().saveSession(session)
             routine.sourceSessionID = session.id

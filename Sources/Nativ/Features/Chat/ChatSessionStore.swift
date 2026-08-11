@@ -15,6 +15,7 @@ struct ChatSession: Identifiable, Equatable, Codable {
     var sessionOrder: Int?
     var folderID: UUID?
     var imageGenerationModelID: String?
+    var capabilitySelection: ChatCapabilitySelection? = nil
 
     var summary: ChatSessionSummary {
         ChatSessionSummary(

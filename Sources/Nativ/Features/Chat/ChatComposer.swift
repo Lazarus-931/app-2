@@ -92,6 +92,8 @@ struct ChatComposer: View {
     let onSend: (Bool) -> Void
     @State private var editorContentHeight: CGFloat = 0
     @State private var didApplyInitialReasoningDefault = false
+    @State private var showsKits = false
+    @State private var showsCapabilities = false
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
     private let editorMinimumHeight: CGFloat = 64
     private let editorMaximumHeight: CGFloat = 120
@@ -192,7 +194,9 @@ struct ChatComposer: View {
                         canPasteImage: viewModel.canPasteImage,
                         onAttachImages: viewModel.chooseImageAttachments,
                         onPasteImage: viewModel.pasteImageFromClipboard,
-                        onCaptureScreenshot: viewModel.captureScreenshot
+                        onCaptureScreenshot: viewModel.captureScreenshot,
+                        onOpenKits: { showsKits = true },
+                        onOpenCapabilities: { showsCapabilities = true }
                     )
                     .frame(width: 30, height: 30)
                     .help("Add attachment")
@@ -258,6 +262,12 @@ struct ChatComposer: View {
         }
         .onDisappear {
             localLibrary.cancel()
+        }
+        .sheet(isPresented: $showsKits) {
+            ChatKitsPickerSheet(model: model, chat: viewModel)
+        }
+        .sheet(isPresented: $showsCapabilities) {
+            ChatCapabilitiesSheet(model: model, chat: viewModel)
         }
     }
 
@@ -1141,6 +1151,8 @@ struct ChatComposerActionMenu: NSViewRepresentable {
     let onAttachImages: () -> Void
     let onPasteImage: () -> Void
     let onCaptureScreenshot: () -> Void
+    var onOpenKits: (() -> Void)? = nil
+    var onOpenCapabilities: (() -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -1224,6 +1236,32 @@ struct ChatComposerActionMenu: NSViewRepresentable {
             screenshotItem.isEnabled = true
             menu.addItem(screenshotItem)
 
+            if parent.onOpenKits != nil || parent.onOpenCapabilities != nil {
+                menu.addItem(.separator())
+            }
+
+            if parent.onOpenKits != nil {
+                let kitsItem = NSMenuItem(
+                    title: "Kits…",
+                    action: #selector(openKits(_:)),
+                    keyEquivalent: ""
+                )
+                kitsItem.target = self
+                kitsItem.image = menuImage("shippingbox", description: "Kits")
+                menu.addItem(kitsItem)
+            }
+
+            if parent.onOpenCapabilities != nil {
+                let capabilitiesItem = NSMenuItem(
+                    title: "Add to chat…",
+                    action: #selector(openCapabilities(_:)),
+                    keyEquivalent: ""
+                )
+                capabilitiesItem.target = self
+                capabilitiesItem.image = menuImage("square.grid.2x2", description: "Add to chat")
+                menu.addItem(capabilitiesItem)
+            }
+
             return menu
         }
 
@@ -1237,6 +1275,14 @@ struct ChatComposerActionMenu: NSViewRepresentable {
 
         @objc private func captureScreenshot(_ sender: NSMenuItem) {
             parent.onCaptureScreenshot()
+        }
+
+        @objc private func openKits(_ sender: NSMenuItem) {
+            parent.onOpenKits?()
+        }
+
+        @objc private func openCapabilities(_ sender: NSMenuItem) {
+            parent.onOpenCapabilities?()
         }
 
         private func menuImage(_ systemName: String, description: String) -> NSImage? {

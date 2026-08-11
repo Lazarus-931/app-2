@@ -290,6 +290,12 @@ private struct ChatComposerContainer: View {
         } action: { height in
             onHeightChange(height)
         }
+        .onAppear {
+            chat.migrateCapabilitySelectionIfNeeded(settings: model.settings)
+        }
+        .onChange(of: chat.currentSessionID) { _, _ in
+            chat.migrateCapabilitySelectionIfNeeded(settings: model.settings)
+        }
     }
 }
 
@@ -306,6 +312,7 @@ final class ChatViewModel: ObservableObject {
         let userMessageID: UUID
         let assistantMessageID: UUID
         let settings: NativSettings
+        let capabilitySelection: ChatCapabilitySelection
         let imageGenerationModelID: String?
         let languageModelSupportsTools: Bool
     }
@@ -326,6 +333,7 @@ final class ChatViewModel: ObservableObject {
     @Published private(set) var currentSessionID: UUID?
     @Published private(set) var messages: [ChatTranscriptMessage] = []
     @Published private(set) var pendingImageAttachments: [ChatImageAttachment] = []
+    @Published private(set) var capabilitySelection = ChatCapabilitySelection.empty
     @Published var draft = ""
     @Published private(set) var promptEditContext: ChatPromptEditContext?
     @Published private(set) var composerFocusToken = 0
@@ -369,7 +377,8 @@ final class ChatViewModel: ObservableObject {
                 title: ChatSession.timestampTitle(for: now),
                 createdAt: now,
                 updatedAt: now,
-                messages: []
+                messages: [],
+                capabilitySelection: .empty
             )
         )
 
@@ -440,6 +449,23 @@ final class ChatViewModel: ObservableObject {
             && selectedModelID?.isEmpty == false
             && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 || !pendingImageAttachments.isEmpty)
+    }
+
+    func migrateCapabilitySelectionIfNeeded(settings: NativSettings) {
+        guard currentSession?.capabilitySelection == nil else { return }
+        capabilitySelection = .legacySnapshot(settings: settings)
+        currentSession?.capabilitySelection = capabilitySelection
+        persistCurrentSession(updateTimestamp: false)
+    }
+
+    func isCapabilitySelected(_ reference: ChatCapabilityReference) -> Bool {
+        capabilitySelection.included.contains(reference)
+    }
+
+    func toggleCapability(_ reference: ChatCapabilityReference) {
+        capabilitySelection.toggle(reference)
+        currentSession?.capabilitySelection = capabilitySelection
+        persistCurrentSession(updateTimestamp: false)
     }
 
     func canEditUserMessage(_ messageID: UUID) -> Bool {
@@ -521,7 +547,8 @@ final class ChatViewModel: ObservableObject {
             title: ChatSession.timestampTitle(for: createdAt),
             createdAt: createdAt,
             updatedAt: createdAt,
-            messages: []
+            messages: [],
+            capabilitySelection: .empty
         )
 
         persistCurrentSession(updateTimestamp: false)
@@ -886,6 +913,7 @@ final class ChatViewModel: ObservableObject {
             userMessageID: userMessageID,
             assistantMessageID: UUID(),
             settings: settings,
+            capabilitySelection: capabilitySelection,
             imageGenerationModelID: imageGenerationModelID(for: sessionID)
                 ?? settings.imageGenerationModelID,
             languageModelSupportsTools: languageModelSupportsTools
@@ -1219,6 +1247,16 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func runChatLoop(_ queuedRequest: QueuedChatRequest) async throws {
+        if queuedRequest.languageModelSupportsTools {
+            let serverIDs = ChatCapabilityResolver.selectedMCPServerIDs(
+                selection: queuedRequest.capabilitySelection,
+                settings: queuedRequest.settings
+            )
+            await mcpHost?.prepare(
+                serverIDs: serverIDs,
+                servers: queuedRequest.settings.mcpServers
+            )
+        }
         let client = NativChatClient(
             baseURL: queuedRequest.settings.serverBaseURL,
             apiKey: queuedRequest.settings.serverAPIKey
@@ -1264,6 +1302,12 @@ final class ChatViewModel: ObservableObject {
                 return
             }
 
+            let allowedToolNames = Set(request.tools?.map(\.function.name) ?? [])
+            let selectedMCPServerIDs = ChatCapabilityResolver.selectedMCPServerIDs(
+                selection: queuedRequest.capabilitySelection,
+                settings: activeSettings
+            )
+
             var insertionAnchor = assistantMessageID
             for (index, toolCall) in toolCalls.enumerated() {
                 try Task.checkCancellation()
@@ -1284,8 +1328,23 @@ final class ChatViewModel: ObservableObject {
                 }
                 insertionAnchor = toolMessageID
 
-                let customTool = toolCall.function?.name.flatMap { toolName in
-                    queuedRequest.settings.customTools.first { $0.toolName == toolName }
+                guard let toolName = toolCall.function?.name,
+                      allowedToolNames.contains(toolName) else {
+                    updateToolMessage(
+                        toolMessageID,
+                        in: queuedRequest.sessionID,
+                        status: .failed,
+                        content: #"{"ok":false,"error":"This tool is not available in this chat."}"#,
+                        attachments: []
+                    )
+                    continue
+                }
+
+                let customTool = queuedRequest.settings.customTools.first {
+                    $0.toolName == toolName
+                        && queuedRequest.capabilitySelection.included.contains(
+                            .tool(.custom($0.id))
+                        )
                 }
                 if customTool?.kind == .script {
                     updateToolMessage(
@@ -1469,9 +1528,15 @@ final class ChatViewModel: ObservableObject {
                         )
                         outcome = ChatToolExecutionOutcome(content: result, attachments: [])
                     } else if let host = mcpHost,
-                              let toolName = toolCall.function?.name,
-                              host.handlesTool(named: toolName) {
-                        let result = try await host.callTool(named: toolName, argumentsJSON: toolCall.function?.arguments)
+                              host.handlesTool(
+                                named: toolName,
+                                serverIDs: selectedMCPServerIDs
+                              ) {
+                        let result = try await host.callTool(
+                            named: toolName,
+                            argumentsJSON: toolCall.function?.arguments,
+                            serverIDs: selectedMCPServerIDs
+                        )
                         outcome = ChatToolExecutionOutcome(content: result, attachments: [])
                     } else {
                         outcome = try await ChatToolDispatcher.execute(call: toolCall, context: context)
@@ -1547,21 +1612,15 @@ final class ChatViewModel: ObservableObject {
         var requestMessages = precedingMessages.compactMap(\.apiMessage)
 
         let advertisesToolsForModel = advertisesTools && queuedRequest.languageModelSupportsTools
-        var toolDefinitions: [MLXChatToolDefinition] = advertisesToolsForModel
-            ? ChatToolRegistry.definitions(
-                canEditImage: precedingMessages.contains { !$0.imageAttachments.isEmpty }
-            )
+        let resolvedCapabilities = ChatCapabilityResolver.resolve(
+            selection: queuedRequest.capabilitySelection,
+            settings: settings,
+            mcpHost: mcpHost,
+            canEditImage: precedingMessages.contains { !$0.imageAttachments.isEmpty }
+        )
+        let toolDefinitions = advertisesToolsForModel
+            ? resolvedCapabilities.toolDefinitions
             : []
-        if advertisesToolsForModel {
-            toolDefinitions += settings.customTools.compactMap { try? $0.definition() }
-            toolDefinitions += mcpHost?.toolDefinitions() ?? []
-            let webSearchIsConfigured = ChatWebSearchToolRegistry.isConfigured()
-            toolDefinitions.removeAll {
-                settings.disabledToolNames.contains($0.function.name)
-                    || ($0.function.name == ChatWebSearchToolRegistry.toolName
-                        && !webSearchIsConfigured)
-            }
-        }
         let tools = toolDefinitions.isEmpty ? nil : toolDefinitions
 
         var systemParts: [String] = []
@@ -1572,9 +1631,7 @@ final class ChatViewModel: ObservableObject {
         if !toolDefinitions.isEmpty {
             systemParts.append(NativSkill.builtInToolGuide.instructions)
         }
-        for skill in settings.skills where skill.isEnabled && !skill.instructions.isEmpty {
-            systemParts.append(skill.instructions)
-        }
+        systemParts += resolvedCapabilities.skillInstructions
         if !systemParts.isEmpty {
             requestMessages.insert(
                 MLXChatMessage(role: "system", content: systemParts.joined(separator: "\n\n")),
@@ -2067,6 +2124,7 @@ final class ChatViewModel: ObservableObject {
     private func applyCurrentSession(_ session: ChatSession) {
         currentSession = session
         currentSessionID = session.id
+        capabilitySelection = session.capabilitySelection ?? .empty
         messages = ChatSessionLoadPolicy.shouldNormalizeOnApply(
             sessionID: session.id,
             activeRequestSessionID: activeRequestSessionID
@@ -2133,6 +2191,7 @@ final class ChatViewModel: ObservableObject {
         }
 
         session.messages = messages
+        session.capabilitySelection = capabilitySelection
         session.title = ChatSession.defaultTitle(for: messages, createdAt: session.createdAt)
         if updateTimestamp {
             session.updatedAt = Date()

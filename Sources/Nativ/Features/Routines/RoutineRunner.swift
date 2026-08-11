@@ -179,7 +179,8 @@ final class RoutineRunner {
             pinned: nil,
             pinnedOrder: nil,
             sessionOrder: nil,
-            folderID: nil
+            folderID: nil,
+            capabilitySelection: .empty
         )
     }
 

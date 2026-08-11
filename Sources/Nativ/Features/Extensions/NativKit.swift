@@ -1,9 +1,8 @@
 import NativServerKit
 import SwiftUI
 
-// A Kit is a ready-made setup: a curated bundle of MCP servers, their tools,
-// skills, and extensions for a role or use-case. Enabling one fans out across
-// all four primitives at once; each part stays individually manageable after.
+// A Kit is a ready-made setup: a curated bundle of MCP servers, skills, and
+// extensions for a role or use-case. It can be selected as one chat capability.
 
 struct NativKit: Identifiable {
     let id: String
@@ -20,7 +19,7 @@ struct NativKit: Identifiable {
         mcpServerIDs.compactMap { id in MCPCatalogEntry.catalog.first { $0.id == id } }
     }
 
-    /// A one-line inventory of what the kit turns on.
+    /// A one-line inventory of what the kit contains.
     var inventory: String {
         var parts: [String] = []
         let servers = mcpEntries.count
@@ -30,14 +29,14 @@ struct NativKit: Identifiable {
         return parts.joined(separator: " · ")
     }
 
-    /// The abilities a person gets when every part of this kit is enabled.
+    /// The abilities a person gets when every part of this kit is installed.
     var capabilityNames: [String] {
         mcpEntries.map(\.name) + skills.map(\.name) + extensionIDs
     }
 }
 
 private extension NativSkill {
-    /// A kit skill with a stable identity so enabling a kit twice never duplicates it.
+    /// A kit skill with a stable identity so setup never duplicates it.
     static func kit(_ uuid: String, _ name: String, _ instructions: String) -> NativSkill {
         NativSkill(id: UUID(uuidString: uuid)!, name: name, instructions: instructions, isEnabled: true)
     }
@@ -104,67 +103,61 @@ extension NativKit {
     ]
 }
 
-// MARK: - Activation
+// MARK: - Setup
 
-/// How much of a kit is currently switched on, derived from its live pieces.
-enum NativKitState: Equatable {
-    case off
-    case partial
-    case enabled
+enum NativKitSetupState: Equatable {
+    case needsSetup
+    case ready
 }
 
-/// Turns a kit's MCP servers, skills, and extensions on or off together, driving
-/// the same settings the individual sections do. Enabling appends any missing
-/// pieces; disabling switches them off without deleting the user's edits.
 @MainActor
-enum NativKitActivation {
-    static func setEnabled(
-        _ enabled: Bool,
+enum NativKitSetup {
+    static func installMissing(
         kit: NativKit,
         model: NativModel,
         manager: NativExtensionManager
     ) {
         for entry in kit.mcpEntries {
-            if let index = matchingServerIndex(for: entry, in: model.settings.mcpServers) {
-                model.settings.mcpServers[index].isEnabled = enabled
-            } else if enabled {
+            if matchingServerIndex(for: entry, in: model.settings.mcpServers) == nil {
                 model.settings.mcpServers.append(entry.makeConfig())
             }
         }
 
         for skill in kit.skills {
-            if let index = model.settings.skills.firstIndex(where: { $0.id == skill.id }) {
-                model.settings.skills[index].isEnabled = enabled
-            } else if enabled {
+            if !model.settings.skills.contains(where: { $0.id == skill.id }) {
                 model.settings.skills.append(skill)
             }
         }
 
         for extensionID in kit.extensionIDs {
-            manager.setEnabled(enabled, extensionID: extensionID)
+            if !manager.isEnabled(extensionID: extensionID) {
+                manager.setEnabled(true, extensionID: extensionID)
+            }
         }
     }
 
-    /// The kit's activation derived from the actual state of its pieces, so the UI
-    /// cannot drift out of sync with the individual switches.
-    static func state(of kit: NativKit, model: NativModel, manager: NativExtensionManager) -> NativKitState {
-        let inactive = inactivePartNames(of: kit, model: model, manager: manager)
-        guard inactive.count < kit.capabilityNames.count else { return .off }
-        return inactive.isEmpty ? .enabled : .partial
+    static func state(
+        of kit: NativKit,
+        model: NativModel,
+        manager: NativExtensionManager
+    ) -> NativKitSetupState {
+        missingPartNames(of: kit, model: model, manager: manager).isEmpty
+            ? .ready
+            : .needsSetup
     }
 
-    /// Names the parts a person still needs to turn on for this kit.
-    static func inactivePartNames(
+    static func missingPartNames(
         of kit: NativKit,
         model: NativModel,
         manager: NativExtensionManager
     ) -> [String] {
         var names: [String] = []
 
-        for entry in kit.mcpEntries where !isServerEnabled(entry, in: model) {
+        for entry in kit.mcpEntries
+            where matchingServerIndex(for: entry, in: model.settings.mcpServers) == nil {
             names.append(entry.name)
         }
-        for skill in kit.skills where model.settings.skills.first(where: { $0.id == skill.id })?.isEnabled != true {
+        for skill in kit.skills where !model.settings.skills.contains(where: { $0.id == skill.id }) {
             names.append(skill.name)
         }
         for extensionID in kit.extensionIDs where !manager.isEnabled(extensionID: extensionID) {
@@ -185,8 +178,4 @@ enum NativKitActivation {
         servers.firstIndex { $0.command == entry.command && $0.arguments == entry.arguments }
     }
 
-    private static func isServerEnabled(_ entry: MCPCatalogEntry, in model: NativModel) -> Bool {
-        guard let index = matchingServerIndex(for: entry, in: model.settings.mcpServers) else { return false }
-        return model.settings.mcpServers[index].isEnabled
-    }
 }

@@ -38,7 +38,6 @@ struct MCPSectionView: View {
                         MCPServerRow(
                             server: server,
                             state: host.states[server.id],
-                            onToggle: { toggle(server) },
                             onReconnect: { host.reconnect(server.id) },
                             onEdit: { editing = server },
                             onDelete: { pendingDelete = server }
@@ -91,11 +90,6 @@ struct MCPSectionView: View {
         }
     }
 
-    private func toggle(_ server: MCPServerConfig) {
-        guard let i = model.settings.mcpServers.firstIndex(where: { $0.id == server.id }) else { return }
-        model.settings.mcpServers[i].isEnabled.toggle()
-    }
-
     private func delete(_ server: MCPServerConfig) {
         model.settings.mcpServers.removeAll { $0.id == server.id }
     }
@@ -114,7 +108,6 @@ struct MCPSectionView: View {
 private struct MCPServerRow: View {
     let server: MCPServerConfig
     let state: MCPServerConnectionState?
-    let onToggle: () -> Void
     let onReconnect: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
@@ -130,14 +123,12 @@ private struct MCPServerRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
-            if server.isEnabled {
-                Button(action: onReconnect) {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Reconnect")
+            Button(action: onReconnect) {
+                Image(systemName: "arrow.clockwise")
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help(state == .available || state == nil ? "Test connection" : "Reconnect")
             Button(action: onEdit) {
                 Image(systemName: "pencil")
             }
@@ -154,10 +145,6 @@ private struct MCPServerRow: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .frame(width: 22)
-            Toggle("", isOn: Binding(get: { server.isEnabled }, set: { _ in onToggle() }))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
         }
         .padding(.vertical, 11)
     }
@@ -172,7 +159,7 @@ private struct MCPServerRow: View {
         case .connected: .success
         case .connecting: .warning
         case .failed: .danger
-        case .disabled, .none: .neutral
+        case .available, .none: .neutral
         }
     }
 
@@ -181,8 +168,8 @@ private struct MCPServerRow: View {
         case .connected(let count): "\(count) tool\(count == 1 ? "" : "s")"
         case .connecting: "Connecting\u{2026}"
         case .failed(let message): message.isEmpty ? "Failed to connect" : message
-        case .disabled: "Off"
-        case .none: server.isEnabled ? "Not connected" : "Off"
+        case .available: "Configured"
+        case .none: "Configured"
         }
     }
 }
@@ -194,33 +181,28 @@ private struct MCPServerJSON: Codable {
     var command: String
     var arguments: [String]
     var environment: [String: String]
-    var isEnabled: Bool
 
     enum CodingKeys: String, CodingKey {
         case name
         case command
         case arguments = "args"
         case environment = "env"
-        case isEnabled
     }
 
-    init(name: String, command: String, arguments: [String], environment: [String: String], isEnabled: Bool) {
+    init(name: String, command: String, arguments: [String], environment: [String: String]) {
         self.name = name
         self.command = command
         self.arguments = arguments
         self.environment = environment
-        self.isEnabled = isEnabled
     }
 
-    // Lenient: the scaffold and pasted standard mcp.json entries may omit name
-    // and isEnabled.
+    // Lenient: the scaffold and pasted standard mcp.json entries may omit name.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         name = (try? c.decode(String.self, forKey: .name)) ?? ""
         command = (try? c.decode(String.self, forKey: .command)) ?? ""
         arguments = (try? c.decode([String].self, forKey: .arguments)) ?? []
         environment = (try? c.decode([String: String].self, forKey: .environment)) ?? [:]
-        isEnabled = (try? c.decode(Bool.self, forKey: .isEnabled)) ?? true
     }
 }
 
@@ -365,8 +347,7 @@ private struct MCPServerEditor: View {
             name: server.name,
             command: server.command,
             arguments: server.arguments,
-            environment: server.environment,
-            isEnabled: server.isEnabled
+            environment: server.environment
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -384,7 +365,6 @@ private struct MCPServerEditor: View {
             server.command = payload.command
             server.arguments = payload.arguments
             server.environment = payload.environment
-            server.isEnabled = payload.isEnabled
             jsonError = nil
         } catch {
             jsonError = "Invalid JSON: \(error.localizedDescription)"

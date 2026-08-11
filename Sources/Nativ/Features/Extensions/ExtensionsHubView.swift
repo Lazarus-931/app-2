@@ -410,7 +410,6 @@ private struct SkillsSectionView: View {
                         if index > 0 { Divider() }
                         SkillRow(
                             skill: skill,
-                            onToggle: { toggle(skill) },
                             onEdit: { editing = skill },
                             onDelete: { pendingDelete = skill }
                         )
@@ -447,11 +446,6 @@ private struct SkillsSectionView: View {
         }
     }
 
-    private func toggle(_ skill: NativSkill) {
-        guard let i = model.settings.skills.firstIndex(where: { $0.id == skill.id }) else { return }
-        model.settings.skills[i].isEnabled.toggle()
-    }
-
     private func delete(_ skill: NativSkill) {
         model.settings.skills.removeAll { $0.id == skill.id }
     }
@@ -468,7 +462,6 @@ private struct SkillsSectionView: View {
 private struct SkillRow: View {
     let skill: NativSkill
     var isBuiltIn: Bool = false
-    let onToggle: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -506,10 +499,6 @@ private struct SkillRow: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .frame(width: 22)
-                Toggle("", isOn: Binding(get: { skill.isEnabled }, set: { _ in onToggle() }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
             }
         }
         .padding(.vertical, 11)

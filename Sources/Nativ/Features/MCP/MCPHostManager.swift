@@ -3,7 +3,7 @@ import Foundation
 import NativServerKit
 
 enum MCPServerConnectionState: Equatable {
-    case disabled
+    case available
     case connecting
     case connected(toolCount: Int)
     case failed(String)
@@ -22,11 +22,16 @@ final class MCPHostManager: ObservableObject {
 
     private var connections: [UUID: Connection] = [:]
     private var appliedServers: [MCPServerConfig] = []
+    private var activeServerIDs = Set<UUID>()
     private var reloadTask: Task<Void, Never>?
     private var reloadGeneration = 0
 
-    func toolDefinitions() -> [MLXChatToolDefinition] {
-        connections.values.flatMap { connection in
+    func toolDefinitions(serverIDs: Set<UUID>) -> [MLXChatToolDefinition] {
+        connections.compactMap { id, connection in
+            serverIDs.contains(id) ? (id, connection) : nil
+        }.sorted {
+            $0.0.uuidString < $1.0.uuidString
+        }.flatMap { _, connection in
             connection.tools.map { tool in
                 MLXChatToolDefinition(
                     function: MLXChatFunctionDefinition(
@@ -39,6 +44,10 @@ final class MCPHostManager: ObservableObject {
         }
     }
 
+    func toolDefinitions() -> [MLXChatToolDefinition] {
+        toolDefinitions(serverIDs: Set(connections.keys))
+    }
+
     func tools(forServer id: UUID) -> [(name: String, displayName: String)] {
         guard let connection = connections[id] else { return [] }
         return connection.tools.map {
@@ -46,15 +55,31 @@ final class MCPHostManager: ObservableObject {
         }
     }
 
-    func handlesTool(named name: String) -> Bool {
-        route(for: name) != nil
+    func handlesTool(named name: String, serverIDs: Set<UUID>) -> Bool {
+        route(for: name, serverIDs: serverIDs) != nil
     }
 
-    func callTool(named name: String, argumentsJSON: String?) async throws -> String {
-        guard let route = route(for: name) else {
+    func handlesTool(named name: String) -> Bool {
+        handlesTool(named: name, serverIDs: Set(connections.keys))
+    }
+
+    func callTool(
+        named name: String,
+        argumentsJSON: String?,
+        serverIDs: Set<UUID>
+    ) async throws -> String {
+        guard let route = route(for: name, serverIDs: serverIDs) else {
             throw MCPClientError.notConnected
         }
         return try await route.client.callTool(name: route.toolName, argumentsJSON: argumentsJSON)
+    }
+
+    func callTool(named name: String, argumentsJSON: String?) async throws -> String {
+        try await callTool(
+            named: name,
+            argumentsJSON: argumentsJSON,
+            serverIDs: Set(connections.keys)
+        )
     }
 
     func reload(servers: [MCPServerConfig]) {
@@ -63,7 +88,15 @@ final class MCPHostManager: ObservableObject {
         scheduleReload(servers: servers, debounce: true)
     }
 
+    func prepare(serverIDs: Set<UUID>, servers: [MCPServerConfig]) async {
+        appliedServers = servers
+        activeServerIDs = serverIDs
+        scheduleReload(servers: servers, debounce: false)
+        await reloadTask?.value
+    }
+
     func reconnect(_ serverID: UUID) {
+        activeServerIDs.insert(serverID)
         if let connection = connections.removeValue(forKey: serverID) {
             states[serverID] = .connecting
             let client = connection.client
@@ -98,11 +131,11 @@ final class MCPHostManager: ObservableObject {
     }
 
     private func applyReload(servers: [MCPServerConfig], generation: Int) async {
-        let enabled = servers.filter(\.isEnabled)
-        let enabledByID = Dictionary(enabled.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let active = servers.filter { activeServerIDs.contains($0.id) }
+        let activeByID = Dictionary(active.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         for (id, connection) in connections {
-            let reusable = enabledByID[id].map { Self.launchEquivalent($0, connection.config) } ?? false
+            let reusable = activeByID[id].map { Self.launchEquivalent($0, connection.config) } ?? false
             if !reusable {
                 connections[id] = nil
                 await connection.client.disconnect()
@@ -110,12 +143,12 @@ final class MCPHostManager: ObservableObject {
         }
         guard generation == reloadGeneration else { return }
 
-        for server in servers where !server.isEnabled {
-            states[server.id] = .disabled
+        for server in servers where !activeServerIDs.contains(server.id) {
+            states[server.id] = .available
         }
         pruneStates(keeping: servers)
 
-        let toConnect = enabled.filter { connections[$0.id] == nil }
+        let toConnect = active.filter { connections[$0.id] == nil }
         guard !toConnect.isEmpty else { return }
 
         for config in toConnect {
@@ -186,8 +219,11 @@ final class MCPHostManager: ObservableObject {
         let client: MCPClient
     }
 
-    private func route(for name: String) -> (client: MCPClient, toolName: String)? {
-        for connection in connections.values {
+    private func route(
+        for name: String,
+        serverIDs: Set<UUID>
+    ) -> (client: MCPClient, toolName: String)? {
+        for (id, connection) in connections where serverIDs.contains(id) {
             let prefix = "mcp__\(connection.slug)__"
             guard name.hasPrefix(prefix) else { continue }
             let toolName = String(name.dropFirst(prefix.count))

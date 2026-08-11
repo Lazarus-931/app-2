@@ -3,9 +3,9 @@ import NativServerKit
 import SwiftUI
 
 @ViewBuilder
-private func kitCompletionIndicator(_ state: NativKitState) -> some View {
+private func kitCompletionIndicator(_ state: NativKitSetupState) -> some View {
     ZStack {
-        if state == .enabled {
+        if state == .ready {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(Color.green)
@@ -30,7 +30,7 @@ struct KitsSectionView: View {
     var body: some View {
         HubSectionScaffold(
             title: "Kits",
-            subtitle: "Ready-made setups. Enable one to turn on the MCP servers, skills, and extensions for a way of working — then manage any piece on its own."
+            subtitle: "Ready-made sets of MCP servers, skills, and extension capabilities you can add to a chat."
         ) {
             EmptyView()
         } content: {
@@ -38,10 +38,10 @@ struct KitsSectionView: View {
                 ForEach(NativKit.all) { kit in
                     KitCard(
                         kit: kit,
-                        state: NativKitActivation.state(of: kit, model: model, manager: manager),
-                        inactiveParts: NativKitActivation.inactivePartNames(of: kit, model: model, manager: manager),
+                        state: NativKitSetup.state(of: kit, model: model, manager: manager),
+                        inactiveParts: NativKitSetup.missingPartNames(of: kit, model: model, manager: manager),
                         onOpen: { openKit = kit },
-                        onEnable: { NativKitActivation.setEnabled(true, kit: kit, model: model, manager: manager) }
+                        onSetup: { NativKitSetup.installMissing(kit: kit, model: model, manager: manager) }
                     )
                 }
             }
@@ -60,10 +60,10 @@ private struct KitCard: View {
     }
 
     let kit: NativKit
-    let state: NativKitState
+    let state: NativKitSetupState
     let inactiveParts: [String]
     let onOpen: () -> Void
-    let onEnable: () -> Void
+    let onSetup: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -95,8 +95,8 @@ private struct KitCard: View {
                     alignment: .topLeading
                 )
             HStack(spacing: 8) {
-                if state == .off {
-                    Button("Enable", action: onEnable)
+                if state == .needsSetup {
+                    Button("Set up", action: onSetup)
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                     Button("Details", action: onOpen)
@@ -128,8 +128,8 @@ private struct KitCard: View {
     }
 
     private var capabilitiesText: String {
-        if state == .partial {
-            return "Off: \(inactiveParts.joined(separator: " · "))"
+        if state == .needsSetup {
+            return "Missing: \(inactiveParts.joined(separator: " · "))"
         }
         return "Includes: \(kit.capabilityNames.joined(separator: " · "))"
     }
@@ -142,7 +142,9 @@ private struct KitDetailView: View {
     @ObservedObject var model: NativModel
     @Environment(\.dismiss) private var dismiss
 
-    private var state: NativKitState { NativKitActivation.state(of: kit, model: model, manager: manager) }
+    private var state: NativKitSetupState {
+        NativKitSetup.state(of: kit, model: model, manager: manager)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -172,16 +174,13 @@ private struct KitDetailView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
-                    Button("Enable all") {
-                        NativKitActivation.setEnabled(true, kit: kit, model: model, manager: manager)
+                    if state == .needsSetup {
+                        Button("Set up missing") {
+                            NativKitSetup.installMissing(kit: kit, model: model, manager: manager)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    Button("Disable all") {
-                        NativKitActivation.setEnabled(false, kit: kit, model: model, manager: manager)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
                 }
                 .padding(.top, 4)
             }
@@ -202,14 +201,14 @@ private struct KitDetailView: View {
                     logoAssetName: entry.logoAssetName,
                     title: entry.name,
                     subtitle: entry.summary,
-                    isOn: mcpBinding(entry)
+                    isReady: hasMCPEntry(entry)
                 )
             }
         }
     }
 
     private var skillsGroup: some View {
-        KitGroup(title: "Skills", caption: "Guidance added to the model when tools are available.") {
+        KitGroup(title: "Skills", caption: "Guidance added when this kit is selected in a chat.") {
             ForEach(kit.skills) { skill in
                 KitPartRow(
                     symbol: "sparkles",
@@ -217,7 +216,7 @@ private struct KitDetailView: View {
                     logoAssetName: nil,
                     title: skill.name,
                     subtitle: nil,
-                    isOn: skillBinding(skill)
+                    isReady: model.settings.skills.contains { $0.id == skill.id }
                 )
             }
         }
@@ -232,52 +231,16 @@ private struct KitDetailView: View {
                     logoAssetName: nil,
                     title: extensionName(extensionID),
                     subtitle: nil,
-                    isOn: extensionBinding(extensionID)
+                    isReady: manager.isEnabled(extensionID: extensionID)
                 )
             }
         }
     }
 
-    // MARK: Bindings
-
-    private func mcpBinding(_ entry: MCPCatalogEntry) -> Binding<Bool> {
-        // Match by launch identity (command + arguments), not name, so the
-        // toggle never targets an unrelated server that shares a name.
-        func matches(_ server: MCPServerConfig) -> Bool {
-            server.command == entry.command && server.arguments == entry.arguments
+    private func hasMCPEntry(_ entry: MCPCatalogEntry) -> Bool {
+        model.settings.mcpServers.contains {
+            $0.command == entry.command && $0.arguments == entry.arguments
         }
-        return Binding(
-            get: { model.settings.mcpServers.first(where: matches)?.isEnabled ?? false },
-            set: { newValue in
-                if let index = model.settings.mcpServers.firstIndex(where: matches) {
-                    model.settings.mcpServers[index].isEnabled = newValue
-                } else if newValue {
-                    model.settings.mcpServers.append(entry.makeConfig())
-                }
-            }
-        )
-    }
-
-    private func skillBinding(_ skill: NativSkill) -> Binding<Bool> {
-        Binding(
-            get: { model.settings.skills.first { $0.id == skill.id }?.isEnabled ?? false },
-            set: { newValue in
-                if let index = model.settings.skills.firstIndex(where: { $0.id == skill.id }) {
-                    model.settings.skills[index].isEnabled = newValue
-                } else if newValue {
-                    var enabled = skill
-                    enabled.isEnabled = true
-                    model.settings.skills.append(enabled)
-                }
-            }
-        )
-    }
-
-    private func extensionBinding(_ extensionID: String) -> Binding<Bool> {
-        Binding(
-            get: { manager.isEnabled(extensionID: extensionID) },
-            set: { manager.setEnabled($0, extensionID: extensionID) }
-        )
     }
 
     private func extensionName(_ extensionID: String) -> String {
@@ -314,7 +277,7 @@ private struct KitPartRow: View {
     let logoAssetName: String?
     let title: String
     let subtitle: String?
-    @Binding var isOn: Bool
+    let isReady: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -330,10 +293,8 @@ private struct KitPartRow: View {
                 }
             }
             Spacer(minLength: 12)
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.small)
+            Image(systemName: isReady ? "checkmark.circle.fill" : "circle.dashed")
+                .foregroundStyle(isReady ? Color.green : Color.secondary)
         }
         .padding(.vertical, 8)
     }

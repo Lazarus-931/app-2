@@ -85,6 +85,18 @@ final class ChatToolRegistryTests: XCTestCase {
         XCTAssertEqual(descriptor?.configuration?.displayName, "Web Search")
     }
 
+    func testOnlyImageToolsAreAvailableWithoutChatSelection() {
+        let descriptors = ChatToolRegistry.descriptors(canEditImage: true)
+        let automaticNames = descriptors
+            .filter(\.isAutomatic)
+            .map(\.definition.function.name)
+
+        XCTAssertEqual(
+            Set(automaticNames),
+            [ChatImageToolRegistry.generateToolName, ChatImageToolRegistry.editToolName]
+        )
+    }
+
     func testDefinitionsAdvertiseGenerationAndGuidanceWithNoImageModelConfigured() {
         let names = ChatToolRegistry.definitions(canEditImage: false)
             .map(\.function.name)
@@ -1103,6 +1115,36 @@ final class ChatSystemMonitorToolExecutorTests: XCTestCase {
 }
 
 final class ChatTranscriptMessageCodableTests: XCTestCase {
+    func testChatSessionPersistsCapabilitySelection() throws {
+        let selection = ChatCapabilitySelection(included: [
+            .tool(.builtIn("system_stats")),
+            .kit("engineering"),
+        ])
+        let session = ChatSession(
+            id: UUID(),
+            title: "Capabilities",
+            createdAt: Date(timeIntervalSince1970: 1),
+            updatedAt: Date(timeIntervalSince1970: 2),
+            messages: [],
+            capabilitySelection: selection
+        )
+
+        let data = try JSONEncoder().encode(session)
+        let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+
+        XCTAssertEqual(decoded.capabilitySelection, selection)
+    }
+
+    func testOldChatSessionWithoutCapabilitySelectionStillDecodes() throws {
+        let oldJSON = #"{"id":"8A6D9E1B-2C1B-4A9E-9C1B-2C1B4A9E9C1B","title":"Old","createdAt":0,"updatedAt":0,"messages":[]}"#
+        let session = try JSONDecoder().decode(
+            ChatSession.self,
+            from: try XCTUnwrap(oldJSON.data(using: .utf8))
+        )
+
+        XCTAssertNil(session.capabilitySelection)
+    }
+
     func testChatSessionPersistsSelectedImageModelID() throws {
         let session = ChatSession(
             id: UUID(),
