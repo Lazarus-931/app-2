@@ -2,7 +2,7 @@ import Foundation
 import NativServerKit
 import XCTest
 
-private actor StubWebSearchHTTPClient: WebSearchHTTPClient {
+private actor StubWebSearchHTTPClient: WebBrowsingHTTPClient {
     private let responseData: Data
     private let statusCode: Int
     private var requests: [URLRequest] = []
@@ -177,7 +177,7 @@ final class ChatWebSearchToolTests: XCTestCase {
     }
 
     func testHTTPFailuresHaveStableSemantics() async throws {
-        let expected: [(Int, WebSearchFailureCode)] = [
+        let expected: [(Int, WebBrowsingFailureCode)] = [
             (401, .invalidAuthentication),
             (402, .insufficientFunds),
             (403, .planAccess),
@@ -195,7 +195,7 @@ final class ChatWebSearchToolTests: XCTestCase {
                     limit: 1
                 )
                 XCTFail("Expected HTTP \(statusCode) to fail")
-            } catch let error as WebSearchError {
+            } catch let error as WebBrowsingError {
                 XCTAssertEqual(error.code, expectedCode)
             }
         }
@@ -218,10 +218,10 @@ final class ChatWebSearchToolTests: XCTestCase {
             XCTFail("Expected a missing-key failure")
         } catch {
             let payload = try failureObject(executor.failurePayload(error: error))
-            XCTAssertEqual(payload["code"] as? String, WebSearchFailureCode.missingAPIKey.rawValue)
+            XCTAssertEqual(payload["code"] as? String, WebBrowsingFailureCode.missingAPIKey.rawValue)
             XCTAssertEqual(
                 payload["user_action_required"] as? String,
-                "Ask the user to add a search API key in Extensions → Tools → web_search, then retry web_search."
+                "Ask the user to add a search API key in Extensions → Browsing, then retry web_search."
             )
         }
     }
@@ -234,7 +234,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         XCTAssertTrue(description.contains("insufficient_funds"))
         XCTAssertTrue(description.contains("plan_access"))
         XCTAssertTrue(description.contains("rate_limited"))
-        XCTAssertTrue(description.contains("Extensions → Tools → web_search"))
+        XCTAssertTrue(description.contains("Extensions → Browsing"))
     }
 
     func testWebSearchResultRejectsUnsafeURLsAndBoundsFields() throws {

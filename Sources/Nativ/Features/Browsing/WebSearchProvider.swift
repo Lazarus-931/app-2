@@ -1,5 +1,10 @@
 import Foundation
 
+enum WebBrowsingCapability: Sendable {
+    case search
+    case read
+}
+
 enum WebSearchProvider: String, CaseIterable, Identifiable, Sendable {
     case brave
     case exa
@@ -8,6 +13,20 @@ enum WebSearchProvider: String, CaseIterable, Identifiable, Sendable {
     case perplexity
 
     var id: String { rawValue }
+
+    func supports(_ capability: WebBrowsingCapability) -> Bool {
+        switch capability {
+        case .search:
+            true
+        case .read:
+            switch self {
+            case .exa, .nimble, .firecrawl:
+                true
+            case .brave, .perplexity:
+                false
+            }
+        }
+    }
 
     var metadata: WebSearchProviderMetadata {
         switch self {

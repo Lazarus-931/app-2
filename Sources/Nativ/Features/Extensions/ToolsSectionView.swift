@@ -39,7 +39,7 @@ struct ToolsSectionView: View {
         }
         .sheet(item: $inspecting) { tool in
             switch tool.configuration {
-            case .webSearch:
+            case .webSearch, .webRead:
                 WebSearchToolConfigurationView(
                     toolName: tool.title,
                     onConfigurationChanged: { _ in }

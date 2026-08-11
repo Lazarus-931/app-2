@@ -34,28 +34,76 @@ enum ChatToolRoundGate {
 
 enum ChatNativeToolConfiguration: Equatable {
     case webSearch
+    case webRead
 
     var displayName: String {
         switch self {
         case .webSearch:
             "Web Search"
+        case .webRead:
+            "Web Read"
+        }
+    }
+
+    var isConfigured: Bool {
+        switch self {
+        case .webSearch:
+            ChatWebSearchToolRegistry.isConfigured()
+        case .webRead:
+            ChatWebReadToolRegistry.isConfigured()
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .webSearch:
+            "globe"
+        case .webRead:
+            "doc.text.magnifyingglass"
         }
     }
 }
 
 struct ChatNativeToolDescriptor {
+    enum Selection {
+        case explicit
+        case automatic
+        case companion(of: String)
+    }
+
     let definition: MLXChatToolDefinition
     let configuration: ChatNativeToolConfiguration?
-    let isAutomatic: Bool
+    let selection: Selection
+
+    var isAutomatic: Bool {
+        if case .automatic = selection { return true }
+        return false
+    }
+
+    var isUserSelectable: Bool {
+        if case .explicit = selection { return true }
+        return false
+    }
+
+    func isSelected(by toolNames: Set<String>) -> Bool {
+        switch selection {
+        case .automatic:
+            true
+        case .explicit:
+            toolNames.contains(definition.function.name)
+        case .companion(let parentToolName):
+            toolNames.contains(parentToolName)
+        }
+    }
 
     init(
         definition: MLXChatToolDefinition,
         configuration: ChatNativeToolConfiguration?,
-        isAutomatic: Bool = false
+        selection: Selection = .explicit
     ) {
         self.definition = definition
         self.configuration = configuration
-        self.isAutomatic = isAutomatic
+        self.selection = selection
     }
 }
 
@@ -74,15 +122,20 @@ enum ChatToolRegistry {
             ChatNativeToolDescriptor(
                 definition: $0,
                 configuration: nil,
-                isAutomatic: [
+                selection: [
                     ChatImageToolRegistry.generateToolName,
                     ChatImageToolRegistry.editToolName,
-                ].contains($0.function.name)
+                ].contains($0.function.name) ? .automatic : .explicit
             )
         }
         tools.append(ChatNativeToolDescriptor(
             definition: ChatWebSearchToolRegistry.definition,
             configuration: .webSearch
+        ))
+        tools.append(ChatNativeToolDescriptor(
+            definition: ChatWebReadToolRegistry.definition,
+            configuration: .webRead,
+            selection: .companion(of: ChatWebSearchToolRegistry.toolName)
         ))
         return tools
     }
@@ -99,6 +152,7 @@ enum ChatToolDispatcher {
         ChatModelLibraryToolRegistry.toolName: executeModelLibraryTool,
         ChatServerStatsToolRegistry.toolName: executeServerStatsTool,
         ChatWebSearchToolRegistry.toolName: executeWebSearchTool,
+        ChatWebReadToolRegistry.toolName: executeWebReadTool,
     ]
 
     private static let failureHandlers: [String: FailureHandler] = [
@@ -118,6 +172,9 @@ enum ChatToolDispatcher {
         },
         ChatWebSearchToolRegistry.toolName: { _, error in
             ChatWebSearchToolExecutor().failurePayload(error: error)
+        },
+        ChatWebReadToolRegistry.toolName: { _, error in
+            ChatWebReadToolExecutor().failurePayload(error: error)
         },
     ]
 
@@ -222,6 +279,14 @@ enum ChatToolDispatcher {
         return ChatToolExecutionOutcome(content: content, attachments: [])
     }
 
+    private static func executeWebReadTool(
+        call: MLXChatToolCall,
+        context _: ChatToolExecutionContext
+    ) async throws -> ChatToolExecutionOutcome {
+        let content = try await ChatWebReadToolExecutor().execute(call: call)
+        return ChatToolExecutionOutcome(content: content, attachments: [])
+    }
+
     private static func failurePayloadForImageTool(name: String, error: Error) -> String {
         ChatImageToolExecutor().failurePayload(operation: name, error: error)
     }
@@ -291,6 +356,8 @@ enum ChatToolPresentation {
             return switchModelTitle(status: status)
         case ChatWebSearchToolRegistry.toolName:
             return webSearchTitle(status: status)
+        case ChatWebReadToolRegistry.toolName:
+            return webReadTitle(status: status)
         default:
             return genericTitle(toolName: toolName, status: status)
         }
@@ -323,6 +390,8 @@ enum ChatToolPresentation {
                 return "arrow.triangle.2.circlepath"
             case ChatWebSearchToolRegistry.toolName:
                 return "globe"
+            case ChatWebReadToolRegistry.toolName:
+                return "doc.text.magnifyingglass"
             default:
                 return "wrench.and.screwdriver"
             }
@@ -414,6 +483,19 @@ enum ChatToolPresentation {
             return "Web search"
         case nil:
             return "Web search"
+        }
+    }
+
+    private static func webReadTitle(status: ChatTranscriptMessage.ToolStatus?) -> String {
+        switch status {
+        case .preparing, .running:
+            return "Reading web pages…"
+        case .succeeded:
+            return "Read web pages"
+        case .failed, .cancelled, .awaitingConsent, .awaitingImageModelSelection, .declined:
+            return "Web read"
+        case nil:
+            return "Web read"
         }
     }
 

@@ -7,7 +7,7 @@ extension ChatCapabilitySelection {
 
         for descriptor in ChatToolRegistry.descriptors(canEditImage: true) {
             let name = descriptor.definition.function.name
-            if !settings.disabledToolNames.contains(name), !descriptor.isAutomatic {
+            if !settings.disabledToolNames.contains(name), descriptor.isUserSelectable {
                 capabilityIDs.insert(.builtInTool(name))
             }
         }
@@ -131,15 +131,15 @@ enum ChatCapabilityCatalog {
 
     private static var nativeToolItems: [ChatCapabilityItem] {
         ChatToolRegistry.descriptors(canEditImage: false).compactMap { descriptor in
-            guard !descriptor.isAutomatic else { return nil }
+            guard descriptor.isUserSelectable else { return nil }
             let name = descriptor.definition.function.name
             return ChatCapabilityItem(
                 reference: .capability(.builtInTool(name)),
                 title: descriptor.configuration?.displayName ?? humanized(name),
                 detail: "\(ChatCapabilityKind.tool.rawValue) · Built-in",
                 kind: .tool,
-                systemImage: descriptor.configuration == .webSearch ? "globe" : "wrench.and.screwdriver",
-                isAvailable: descriptor.configuration != .webSearch || ChatWebSearchToolRegistry.isConfigured()
+                systemImage: descriptor.configuration?.systemImage ?? "wrench.and.screwdriver",
+                isAvailable: descriptor.configuration?.isConfigured ?? true
             )
         }
     }
@@ -204,13 +204,13 @@ enum ChatCapabilityResolver {
             settings: settings
         )
         var tools: [ResolvedChatTool] = []
+        let selectedBuiltInToolNames = Set(capabilityIDs.compactMap(\.builtInToolName))
 
         for descriptor in ChatToolRegistry.descriptors(canEditImage: canEditImage) {
-            let name = descriptor.definition.function.name
-            guard descriptor.isAutomatic || capabilityIDs.contains(.builtInTool(name)) else {
+            guard descriptor.isSelected(by: selectedBuiltInToolNames) else {
                 continue
             }
-            if descriptor.configuration == .webSearch, !ChatWebSearchToolRegistry.isConfigured() {
+            if let configuration = descriptor.configuration, !configuration.isConfigured {
                 continue
             }
             tools.append(ResolvedChatTool(definition: descriptor.definition, route: .native))
