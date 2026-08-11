@@ -9,6 +9,32 @@ enum MCPServerConnectionState: Equatable {
     case failed(String)
 }
 
+struct MCPHostedTool {
+    let serverID: UUID
+    let definition: MLXChatToolDefinition
+}
+
+@MainActor
+final class MCPServerLease {
+    let serverIDs: Set<UUID>
+
+    private let id: UUID
+    private weak var host: MCPHostManager?
+    private var isReleased = false
+
+    fileprivate init(id: UUID, serverIDs: Set<UUID>, host: MCPHostManager) {
+        self.id = id
+        self.serverIDs = serverIDs
+        self.host = host
+    }
+
+    func release() {
+        guard !isReleased else { return }
+        isReleased = true
+        host?.releaseLease(id)
+    }
+}
+
 @MainActor
 final class MCPHostManager: ObservableObject {
     @Published private(set) var states: [UUID: MCPServerConnectionState] = [:]
@@ -22,26 +48,34 @@ final class MCPHostManager: ObservableObject {
 
     private var connections: [UUID: Connection] = [:]
     private var appliedServers: [MCPServerConfig] = []
-    private var activeServerIDs = Set<UUID>()
+    private var leasedServerIDs: [UUID: Set<UUID>] = [:]
+    private var manuallyConnectedServerIDs = Set<UUID>()
     private var reloadTask: Task<Void, Never>?
     private var reloadGeneration = 0
 
-    func toolDefinitions(serverIDs: Set<UUID>) -> [MLXChatToolDefinition] {
+    func hostedTools(serverIDs: Set<UUID>) -> [MCPHostedTool] {
         connections.compactMap { id, connection in
             serverIDs.contains(id) ? (id, connection) : nil
         }.sorted {
             $0.0.uuidString < $1.0.uuidString
         }.flatMap { _, connection in
             connection.tools.map { tool in
-                MLXChatToolDefinition(
-                    function: MLXChatFunctionDefinition(
-                        name: Self.toolName(slug: connection.slug, tool: tool.name),
-                        description: tool.description,
-                        parameters: tool.parameters
+                MCPHostedTool(
+                    serverID: connection.config.id,
+                    definition: MLXChatToolDefinition(
+                        function: MLXChatFunctionDefinition(
+                            name: Self.toolName(slug: connection.slug, tool: tool.name),
+                            description: tool.description,
+                            parameters: tool.parameters
+                        )
                     )
                 )
             }
         }
+    }
+
+    func toolDefinitions(serverIDs: Set<UUID>) -> [MLXChatToolDefinition] {
+        hostedTools(serverIDs: serverIDs).map(\.definition)
     }
 
     func toolDefinitions() -> [MLXChatToolDefinition] {
@@ -66,9 +100,9 @@ final class MCPHostManager: ObservableObject {
     func callTool(
         named name: String,
         argumentsJSON: String?,
-        serverIDs: Set<UUID>
+        serverID: UUID
     ) async throws -> String {
-        guard let route = route(for: name, serverIDs: serverIDs) else {
+        guard let route = route(for: name, serverID: serverID) else {
             throw MCPClientError.notConnected
         }
         return try await route.client.callTool(name: route.toolName, argumentsJSON: argumentsJSON)
@@ -82,21 +116,44 @@ final class MCPHostManager: ObservableObject {
         )
     }
 
+    private func callTool(
+        named name: String,
+        argumentsJSON: String?,
+        serverIDs: Set<UUID>
+    ) async throws -> String {
+        guard let route = route(for: name, serverIDs: serverIDs) else {
+            throw MCPClientError.notConnected
+        }
+        return try await route.client.callTool(name: route.toolName, argumentsJSON: argumentsJSON)
+    }
+
     func reload(servers: [MCPServerConfig]) {
         guard servers != appliedServers else { return }
         appliedServers = servers
         scheduleReload(servers: servers, debounce: true)
     }
 
-    func prepare(serverIDs: Set<UUID>, servers: [MCPServerConfig]) async {
+    func acquireLease(
+        serverIDs: Set<UUID>,
+        servers: [MCPServerConfig]
+    ) async -> MCPServerLease {
         appliedServers = servers
-        activeServerIDs = serverIDs
+        let configuredIDs = Set(servers.map(\.id))
+        let leaseID = UUID()
+        let leasedIDs = serverIDs.intersection(configuredIDs)
+        leasedServerIDs[leaseID] = leasedIDs
         scheduleReload(servers: servers, debounce: false)
-        await reloadTask?.value
+        await waitForLatestReload()
+        return MCPServerLease(id: leaseID, serverIDs: leasedIDs, host: self)
+    }
+
+    fileprivate func releaseLease(_ id: UUID) {
+        guard leasedServerIDs.removeValue(forKey: id) != nil else { return }
+        scheduleReload(servers: appliedServers, debounce: true)
     }
 
     func reconnect(_ serverID: UUID) {
-        activeServerIDs.insert(serverID)
+        manuallyConnectedServerIDs.insert(serverID)
         if let connection = connections.removeValue(forKey: serverID) {
             states[serverID] = .connecting
             let client = connection.client
@@ -110,6 +167,8 @@ final class MCPHostManager: ObservableObject {
         let previous = connections
         connections = [:]
         states = [:]
+        leasedServerIDs = [:]
+        manuallyConnectedServerIDs = []
         Task {
             for connection in previous.values {
                 await connection.client.disconnect()
@@ -130,7 +189,24 @@ final class MCPHostManager: ObservableObject {
         }
     }
 
+    private func waitForLatestReload() async {
+        while true {
+            let generation = reloadGeneration
+            let task = reloadTask
+            await task?.value
+            if generation == reloadGeneration {
+                return
+            }
+        }
+    }
+
     private func applyReload(servers: [MCPServerConfig], generation: Int) async {
+        manuallyConnectedServerIDs.formIntersection(servers.map(\.id))
+        let activeServerIDs = leasedServerIDs.values.reduce(
+            into: manuallyConnectedServerIDs
+        ) { result, ids in
+            result.formUnion(ids)
+        }
         let active = servers.filter { activeServerIDs.contains($0.id) }
         let activeByID = Dictionary(active.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
@@ -232,6 +308,20 @@ final class MCPHostManager: ObservableObject {
             }
         }
         return nil
+    }
+
+    private func route(
+        for name: String,
+        serverID: UUID
+    ) -> (client: MCPClient, toolName: String)? {
+        guard let connection = connections[serverID] else { return nil }
+        let prefix = "mcp__\(connection.slug)__"
+        guard name.hasPrefix(prefix) else { return nil }
+        let toolName = String(name.dropFirst(prefix.count))
+        guard connection.tools.contains(where: { $0.name == toolName }) else {
+            return nil
+        }
+        return (connection.client, toolName)
     }
 
     private func pruneStates(keeping servers: [MCPServerConfig]) {

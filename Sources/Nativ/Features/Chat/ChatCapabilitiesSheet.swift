@@ -50,6 +50,7 @@ struct ChatCapabilitiesSheet: View {
     }
 
     private func capabilityRow(_ item: ChatCapabilityItem) -> some View {
+        let isSelected = chat.isCapabilitySelected(item.reference)
         Button {
             chat.toggleCapability(item.reference)
         } label: {
@@ -67,7 +68,7 @@ struct ChatCapabilitiesSheet: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 12)
-                if chat.isCapabilitySelected(item.reference) {
+                if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
@@ -77,7 +78,7 @@ struct ChatCapabilitiesSheet: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .disabled(!item.isAvailable)
+        .disabled(!item.isAvailable && !isSelected)
     }
 }
 
@@ -104,6 +105,7 @@ struct ChatKitsPickerSheet: View {
                     Array(ChatCapabilityCatalog.kits(settings: model.settings).enumerated()),
                     id: \.element.id
                 ) { index, kit in
+                    let isSelected = chat.isCapabilitySelected(kit.reference)
                     if index > 0 { Divider() }
                     Button {
                         chat.toggleCapability(kit.reference)
@@ -123,7 +125,7 @@ struct ChatKitsPickerSheet: View {
                                     .lineLimit(2)
                             }
                             Spacer(minLength: 12)
-                            if chat.isCapabilitySelected(kit.reference) {
+                            if isSelected {
                                 Image(systemName: "checkmark")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(Color.accentColor)
@@ -133,7 +135,7 @@ struct ChatKitsPickerSheet: View {
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .disabled(!kit.isAvailable)
+                    .disabled(!kit.isAvailable && !isSelected)
                 }
             }
         }

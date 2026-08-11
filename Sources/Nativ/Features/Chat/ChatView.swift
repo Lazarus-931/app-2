@@ -317,6 +317,11 @@ final class ChatViewModel: ObservableObject {
         let languageModelSupportsTools: Bool
     }
 
+    private struct PreparedChatRequest {
+        let request: MLXChatCompletionRequest
+        let executionRoutes: [String: ChatToolExecutionRoute]
+    }
+
     private struct ComposerSnapshot {
         let draft: String
         let attachments: [ChatImageAttachment]
@@ -459,7 +464,7 @@ final class ChatViewModel: ObservableObject {
     }
 
     func isCapabilitySelected(_ reference: ChatCapabilityReference) -> Bool {
-        capabilitySelection.included.contains(reference)
+        capabilitySelection.contains(reference)
     }
 
     func toggleCapability(_ reference: ChatCapabilityReference) {
@@ -1247,16 +1252,21 @@ final class ChatViewModel: ObservableObject {
     }
 
     private func runChatLoop(_ queuedRequest: QueuedChatRequest) async throws {
-        if queuedRequest.languageModelSupportsTools {
+        var mcpLease: MCPServerLease?
+        if queuedRequest.languageModelSupportsTools, let mcpHost {
             let serverIDs = ChatCapabilityResolver.selectedMCPServerIDs(
                 selection: queuedRequest.capabilitySelection,
                 settings: queuedRequest.settings
             )
-            await mcpHost?.prepare(
-                serverIDs: serverIDs,
-                servers: queuedRequest.settings.mcpServers
-            )
+            if !serverIDs.isEmpty {
+                mcpLease = await mcpHost.acquireLease(
+                    serverIDs: serverIDs,
+                    servers: queuedRequest.settings.mcpServers
+                )
+            }
         }
+        defer { mcpLease?.release() }
+
         let client = NativChatClient(
             baseURL: queuedRequest.settings.serverBaseURL,
             apiKey: queuedRequest.settings.serverAPIKey
@@ -1269,7 +1279,7 @@ final class ChatViewModel: ObservableObject {
         while true {
             try Task.checkCancellation()
             let advertisesTools = ChatToolRoundGate.advertisesTools(atRound: toolRounds)
-            guard let request = makeCompletionRequest(
+            guard let preparedRequest = makeCompletionRequest(
                 for: queuedRequest,
                 before: assistantMessageID,
                 advertisesTools: advertisesTools,
@@ -1278,15 +1288,18 @@ final class ChatViewModel: ObservableObject {
                 throw NativChatError.invalidResponse
             }
 
-            let completion = try await client.streamChat(request, onEvent: { [weak self] event in
-                await MainActor.run {
-                    self?.append(
-                        event: event,
-                        to: assistantMessageID,
-                        in: queuedRequest.sessionID
-                    )
+            let completion = try await client.streamChat(
+                preparedRequest.request,
+                onEvent: { [weak self] event in
+                    await MainActor.run {
+                        self?.append(
+                            event: event,
+                            to: assistantMessageID,
+                            in: queuedRequest.sessionID
+                        )
+                    }
                 }
-            })
+            )
             let toolCalls = normalizedToolCalls(completion.toolCalls)
             finishAssistantMessage(
                 assistantMessageID,
@@ -1301,12 +1314,6 @@ final class ChatViewModel: ObservableObject {
             guard advertisesTools, !toolCalls.isEmpty else {
                 return
             }
-
-            let allowedToolNames = Set(request.tools?.map(\.function.name) ?? [])
-            let selectedMCPServerIDs = ChatCapabilityResolver.selectedMCPServerIDs(
-                selection: queuedRequest.capabilitySelection,
-                settings: activeSettings
-            )
 
             var insertionAnchor = assistantMessageID
             for (index, toolCall) in toolCalls.enumerated() {
@@ -1329,7 +1336,8 @@ final class ChatViewModel: ObservableObject {
                 insertionAnchor = toolMessageID
 
                 guard let toolName = toolCall.function?.name,
-                      allowedToolNames.contains(toolName) else {
+                      let executionRoute = preparedRequest.executionRoutes[toolName]
+                else {
                     updateToolMessage(
                         toolMessageID,
                         in: queuedRequest.sessionID,
@@ -1340,11 +1348,10 @@ final class ChatViewModel: ObservableObject {
                     continue
                 }
 
-                let customTool = queuedRequest.settings.customTools.first {
-                    $0.toolName == toolName
-                        && queuedRequest.capabilitySelection.included.contains(
-                            .tool(.custom($0.id))
-                        )
+                let customTool: CustomTool? = if case .custom(let id) = executionRoute {
+                    queuedRequest.settings.customTools.first { $0.id == id }
+                } else {
+                    nil
                 }
                 if customTool?.kind == .script {
                     updateToolMessage(
@@ -1385,7 +1392,8 @@ final class ChatViewModel: ObservableObject {
                     }
                 }
 
-                if toolCall.function?.name == ChatSwitchModelToolRegistry.toolName {
+                if executionRoute == .native,
+                   toolName == ChatSwitchModelToolRegistry.toolName {
                     updateToolMessage(
                         toolMessageID,
                         in: queuedRequest.sessionID,
@@ -1520,26 +1528,30 @@ final class ChatViewModel: ObservableObject {
                             )
                         }
                     )
-                    let outcome: ChatToolExecutionOutcome
-                    if let customTool {
+                    let outcome: ChatToolExecutionOutcome = switch executionRoute {
+                    case .custom:
+                        guard let customTool else {
+                            throw CustomToolError.invalidResponse
+                        }
                         let result = try await CustomToolExecutor.execute(
                             customTool,
                             argumentsJSON: toolCall.function?.arguments
                         )
-                        outcome = ChatToolExecutionOutcome(content: result, attachments: [])
-                    } else if let host = mcpHost,
-                              host.handlesTool(
-                                named: toolName,
-                                serverIDs: selectedMCPServerIDs
-                              ) {
+                        ChatToolExecutionOutcome(content: result, attachments: [])
+                    case .mcpServer(let serverID):
+                        guard let host = mcpHost,
+                              mcpLease?.serverIDs.contains(serverID) == true
+                        else {
+                            throw MCPClientError.notConnected
+                        }
                         let result = try await host.callTool(
                             named: toolName,
                             argumentsJSON: toolCall.function?.arguments,
-                            serverIDs: selectedMCPServerIDs
+                            serverID: serverID
                         )
-                        outcome = ChatToolExecutionOutcome(content: result, attachments: [])
-                    } else {
-                        outcome = try await ChatToolDispatcher.execute(call: toolCall, context: context)
+                        ChatToolExecutionOutcome(content: result, attachments: [])
+                    case .native:
+                        try await ChatToolDispatcher.execute(call: toolCall, context: context)
                     }
                     updateToolMessage(
                         toolMessageID,
@@ -1600,7 +1612,7 @@ final class ChatViewModel: ObservableObject {
         before assistantMessageID: UUID,
         advertisesTools: Bool,
         settings: NativSettings
-    ) -> MLXChatCompletionRequest? {
+    ) -> PreparedChatRequest? {
         guard let modelID = settings.languageModelID,
               let sessionMessages = sessionMessages(for: queuedRequest.sessionID),
               let assistantIndex = sessionMessages.firstIndex(where: { $0.id == assistantMessageID })
@@ -1638,7 +1650,7 @@ final class ChatViewModel: ObservableObject {
                 at: 0
             )
         }
-        return MLXChatCompletionRequest(
+        let request = MLXChatCompletionRequest(
             model: modelID,
             messages: requestMessages,
             maxTokens: settings.maxTokens,
@@ -1659,6 +1671,12 @@ final class ChatViewModel: ObservableObject {
             tools: tools,
             toolChoice: tools == nil ? nil : "auto",
             stream: true
+        )
+        return PreparedChatRequest(
+            request: request,
+            executionRoutes: advertisesToolsForModel
+                ? resolvedCapabilities.executionRoutes
+                : [:]
         )
     }
 

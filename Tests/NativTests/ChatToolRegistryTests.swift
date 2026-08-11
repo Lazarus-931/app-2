@@ -1117,8 +1117,9 @@ final class ChatSystemMonitorToolExecutorTests: XCTestCase {
 final class ChatTranscriptMessageCodableTests: XCTestCase {
     func testChatSessionPersistsCapabilitySelection() throws {
         let selection = ChatCapabilitySelection(included: [
-            .tool(.builtIn("system_stats")),
-            .kit("engineering"),
+            .builtInTool("system_stats"),
+        ], kits: [
+            ChatKitSelection(id: "engineering", capabilityIDs: [])
         ])
         let session = ChatSession(
             id: UUID(),

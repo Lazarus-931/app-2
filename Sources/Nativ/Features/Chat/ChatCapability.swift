@@ -3,25 +3,25 @@ import NativServerKit
 
 extension ChatCapabilitySelection {
     static func legacySnapshot(settings: NativSettings) -> Self {
-        var references = Set<ChatCapabilityReference>()
+        var capabilityIDs = Set<ChatCapabilityID>()
 
         for descriptor in ChatToolRegistry.descriptors(canEditImage: true) {
             let name = descriptor.definition.function.name
             if !settings.disabledToolNames.contains(name), !descriptor.isAutomatic {
-                references.insert(.tool(.builtIn(name)))
+                capabilityIDs.insert(.builtInTool(name))
             }
         }
         for tool in settings.customTools where !settings.disabledToolNames.contains(tool.toolName) {
-            references.insert(.tool(.custom(tool.id)))
+            capabilityIDs.insert(.customTool(tool.id))
         }
         for skill in settings.skills where skill.isEnabled {
-            references.insert(.skill(skill.id))
+            capabilityIDs.insert(.skill(skill.id))
         }
         for server in settings.mcpServers where server.isEnabled {
-            references.insert(.mcpServer(server.id))
+            capabilityIDs.insert(.mcpServer(server.id))
         }
 
-        return Self(included: references)
+        return Self(included: capabilityIDs)
     }
 }
 
@@ -29,7 +29,6 @@ enum ChatCapabilityKind: String, Sendable {
     case tool = "Tool"
     case skill = "Skill"
     case connection = "MCP"
-    case extensionPackage = "Extension"
     case kit = "Kit"
 }
 
@@ -49,7 +48,7 @@ enum ChatCapabilityCatalog {
         var items = nativeToolItems
         items += settings.customTools.map {
             ChatCapabilityItem(
-                reference: .tool(.custom($0.id)),
+                reference: .capability(.customTool($0.id)),
                 title: $0.name,
                 detail: "\(ChatCapabilityKind.tool.rawValue) · Custom",
                 kind: .tool,
@@ -59,7 +58,7 @@ enum ChatCapabilityCatalog {
         }
         items += settings.skills.map {
             ChatCapabilityItem(
-                reference: .skill($0.id),
+                reference: .capability(.skill($0.id)),
                 title: $0.name.isEmpty ? "Untitled skill" : $0.name,
                 detail: ChatCapabilityKind.skill.rawValue,
                 kind: .skill,
@@ -71,7 +70,7 @@ enum ChatCapabilityCatalog {
             .filter { !$0.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map {
                 ChatCapabilityItem(
-                    reference: .mcpServer($0.id),
+                    reference: .capability(.mcpServer($0.id)),
                     title: $0.name.isEmpty ? "Untitled server" : $0.name,
                     detail: "MCP connection",
                     kind: .connection,
@@ -90,27 +89,44 @@ enum ChatCapabilityCatalog {
 
     static func kits(settings: NativSettings) -> [ChatCapabilityItem] {
         NativKit.all.map {
+            let snapshot = kitSnapshot($0, settings: settings)
             ChatCapabilityItem(
-                reference: .kit($0.id),
+                reference: .kit(snapshot),
                 title: $0.name,
                 detail: $0.summary,
                 kind: .kit,
                 systemImage: $0.symbol,
-                isAvailable: kitIsInstalled($0, settings: settings)
+                isAvailable: kitIsInstalled($0, snapshot: snapshot)
             )
         }
     }
 
-    private static func kitIsInstalled(_ kit: NativKit, settings: NativSettings) -> Bool {
-        let hasServers = kit.mcpEntries.allSatisfy { entry in
-            settings.mcpServers.contains {
-                $0.command == entry.command && $0.arguments == entry.arguments
+    private static func kitSnapshot(
+        _ kit: NativKit,
+        settings: NativSettings
+    ) -> ChatKitSelection {
+        var capabilityIDs = Set(
+            kit.skills.compactMap { skill in
+                settings.skills.contains { $0.id == skill.id }
+                    ? ChatCapabilityID.skill(skill.id)
+                    : nil
             }
+        )
+        for entry in kit.mcpEntries {
+            guard let server = settings.mcpServers.first(where: {
+                $0.command == entry.command && $0.arguments == entry.arguments
+            }) else { continue }
+            capabilityIDs.insert(.mcpServer(server.id))
         }
-        let hasSkills = kit.skills.allSatisfy { skill in
-            settings.skills.contains { $0.id == skill.id }
-        }
-        return hasServers && hasSkills
+        return ChatKitSelection(id: kit.id, capabilityIDs: capabilityIDs)
+    }
+
+    private static func kitIsInstalled(
+        _ kit: NativKit,
+        snapshot: ChatKitSelection
+    ) -> Bool {
+        let expectedCount = kit.mcpEntries.count + kit.skills.count
+        return kit.extensionIDs.isEmpty && snapshot.capabilityIDs.count == expectedCount
     }
 
     private static var nativeToolItems: [ChatCapabilityItem] {
@@ -118,7 +134,7 @@ enum ChatCapabilityCatalog {
             guard !descriptor.isAutomatic else { return nil }
             let name = descriptor.definition.function.name
             return ChatCapabilityItem(
-                reference: .tool(.builtIn(name)),
+                reference: .capability(.builtInTool(name)),
                 title: descriptor.configuration?.displayName ?? humanized(name),
                 detail: "\(ChatCapabilityKind.tool.rawValue) · Built-in",
                 kind: .tool,
@@ -135,11 +151,33 @@ enum ChatCapabilityCatalog {
     }
 }
 
+enum ChatToolExecutionRoute: Equatable {
+    case native
+    case custom(UUID)
+    case mcpServer(UUID)
+}
+
+struct ResolvedChatTool {
+    let definition: MLXChatToolDefinition
+    let route: ChatToolExecutionRoute
+}
+
 struct ResolvedChatCapabilities {
-    let toolDefinitions: [MLXChatToolDefinition]
+    let tools: [ResolvedChatTool]
     let skillInstructions: [String]
     let mcpServerIDs: Set<UUID>
-    let extensionPackageIDs: Set<String>
+
+    var toolDefinitions: [MLXChatToolDefinition] {
+        tools.map(\.definition)
+    }
+
+    var executionRoutes: [String: ChatToolExecutionRoute] {
+        Dictionary(
+            uniqueKeysWithValues: tools.map {
+                ($0.definition.function.name, $0.route)
+            }
+        )
+    }
 }
 
 enum ChatCapabilityResolver {
@@ -147,7 +185,10 @@ enum ChatCapabilityResolver {
         selection: ChatCapabilitySelection,
         settings: NativSettings
     ) -> Set<UUID> {
-        expanded(selection: selection, settings: settings).mcpServerIDs
+        selectedCapabilityIDs(selection: selection)
+            .compactMap(\.mcpServerID)
+            .filter { id in settings.mcpServers.contains { $0.id == id } }
+            .reduce(into: Set<UUID>()) { $0.insert($1) }
     }
 
     @MainActor
@@ -157,102 +198,70 @@ enum ChatCapabilityResolver {
         mcpHost: MCPHostManager?,
         canEditImage: Bool
     ) -> ResolvedChatCapabilities {
-        let expansion = expanded(selection: selection, settings: settings)
-        var definitions: [MLXChatToolDefinition] = []
+        let capabilityIDs = selectedCapabilityIDs(selection: selection)
+        let mcpServerIDs = selectedMCPServerIDs(
+            selection: selection,
+            settings: settings
+        )
+        var tools: [ResolvedChatTool] = []
 
         for descriptor in ChatToolRegistry.descriptors(canEditImage: canEditImage) {
             let name = descriptor.definition.function.name
-            let id = ChatToolID.builtIn(name)
-            guard descriptor.isAutomatic || expansion.toolIDs.contains(id) else { continue }
+            guard descriptor.isAutomatic || capabilityIDs.contains(.builtInTool(name)) else {
+                continue
+            }
             if descriptor.configuration == .webSearch, !ChatWebSearchToolRegistry.isConfigured() {
                 continue
             }
-            definitions.append(descriptor.definition)
+            tools.append(ResolvedChatTool(definition: descriptor.definition, route: .native))
         }
 
-        for tool in settings.customTools where expansion.toolIDs.contains(.custom(tool.id)) {
+        for tool in settings.customTools where capabilityIDs.contains(.customTool(tool.id)) {
             guard let definition = try? tool.definition() else { continue }
-            definitions.append(definition)
+            tools.append(ResolvedChatTool(definition: definition, route: .custom(tool.id)))
         }
 
         if let mcpHost {
-            let mcpDefinitions = mcpHost.toolDefinitions(serverIDs: expansion.mcpServerIDs)
-            definitions += mcpDefinitions
+            tools += mcpHost.hostedTools(serverIDs: mcpServerIDs).map {
+                ResolvedChatTool(
+                    definition: $0.definition,
+                    route: .mcpServer($0.serverID)
+                )
+            }
         }
 
         var skillInstructions: [String] = []
-        var seenSkillIDs = Set<UUID>()
-        let kitSkills = Dictionary(
-            NativKit.all.flatMap(\.skills).map { ($0.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
         let configuredSkills = Dictionary(
             settings.skills.map { ($0.id, $0) },
             uniquingKeysWith: { current, _ in current }
         )
-        let orderedSkillIDs = expansion.skillIDs.sorted {
+        let orderedSkillIDs = capabilityIDs.compactMap(\.skillID).sorted {
             $0.uuidString < $1.uuidString
         }
-        for id in orderedSkillIDs where seenSkillIDs.insert(id).inserted {
-            let instructions = configuredSkills[id]?.instructions ?? kitSkills[id]?.instructions
+        for id in orderedSkillIDs {
+            let instructions = configuredSkills[id]?.instructions
             if let instructions, !instructions.isEmpty {
                 skillInstructions.append(instructions)
             }
         }
 
         return ResolvedChatCapabilities(
-            toolDefinitions: deduplicated(definitions),
+            tools: deduplicated(tools),
             skillInstructions: skillInstructions,
-            mcpServerIDs: expansion.mcpServerIDs,
-            extensionPackageIDs: expansion.extensionPackageIDs
+            mcpServerIDs: mcpServerIDs
         )
     }
 
-    private struct Expansion {
-        var toolIDs = Set<ChatToolID>()
-        var skillIDs = Set<UUID>()
-        var mcpServerIDs = Set<UUID>()
-        var extensionPackageIDs = Set<String>()
-    }
-
-    private static func expanded(
-        selection: ChatCapabilitySelection,
-        settings: NativSettings
-    ) -> Expansion {
-        var result = Expansion()
-
-        for reference in selection.included {
-            switch reference {
-            case .tool(let id):
-                result.toolIDs.insert(id)
-            case .skill(let id):
-                result.skillIDs.insert(id)
-            case .mcpServer(let id):
-                if settings.mcpServers.contains(where: { $0.id == id }) {
-                    result.mcpServerIDs.insert(id)
-                }
-            case .extensionPackage(let id):
-                result.extensionPackageIDs.insert(id)
-            case .kit(let id):
-                guard let kit = NativKit.all.first(where: { $0.id == id }) else { continue }
-                result.skillIDs.formUnion(kit.skills.map(\.id))
-                result.extensionPackageIDs.formUnion(kit.extensionIDs)
-                for entry in kit.mcpEntries {
-                    guard let server = settings.mcpServers.first(where: {
-                        $0.command == entry.command && $0.arguments == entry.arguments
-                    }) else { continue }
-                    result.mcpServerIDs.insert(server.id)
-                }
-            }
-        }
-
-        return result
+    private static func selectedCapabilityIDs(
+        selection: ChatCapabilitySelection
+    ) -> Set<ChatCapabilityID> {
+        selection.effectiveCapabilityIDs
     }
 
     private static func deduplicated(
-        _ definitions: [MLXChatToolDefinition]
-    ) -> [MLXChatToolDefinition] {
+        _ tools: [ResolvedChatTool]
+    ) -> [ResolvedChatTool] {
         var names = Set<String>()
-        return definitions.filter { names.insert($0.function.name).inserted }
+        return tools.filter { names.insert($0.definition.function.name).inserted }
     }
 }
