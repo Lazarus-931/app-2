@@ -1272,13 +1272,13 @@ final class ChatViewModel: ObservableObject {
             apiKey: queuedRequest.settings.serverAPIKey
         )
         var assistantMessageID = queuedRequest.assistantMessageID
-        var toolRounds = 0
+        var advertisesTools = true
+        var toolLoopGuard = ChatToolLoopGuard()
         var activeSettings = queuedRequest.settings
         var activeImageModelID = queuedRequest.imageGenerationModelID
 
         while true {
             try Task.checkCancellation()
-            let advertisesTools = ChatToolRoundGate.advertisesTools(atRound: toolRounds)
             guard let preparedRequest = makeCompletionRequest(
                 for: queuedRequest,
                 before: assistantMessageID,
@@ -1313,6 +1313,43 @@ final class ChatViewModel: ObservableObject {
 
             guard advertisesTools, !toolCalls.isEmpty else {
                 return
+            }
+
+            if !toolLoopGuard.allows(toolCalls) {
+                var insertionAnchor = assistantMessageID
+                for toolCall in toolCalls {
+                    let toolMessageID = UUID()
+                    guard insertToolMessage(
+                        id: toolMessageID,
+                        call: toolCall,
+                        after: insertionAnchor,
+                        in: queuedRequest.sessionID,
+                        status: .failed
+                    ) else {
+                        throw NativChatError.invalidResponse
+                    }
+                    updateToolMessage(
+                        toolMessageID,
+                        in: queuedRequest.sessionID,
+                        status: .failed,
+                        content: ChatToolLoopGuard.repeatedCallPayload,
+                        attachments: []
+                    )
+                    insertionAnchor = toolMessageID
+                }
+
+                advertisesTools = false
+                assistantMessageID = UUID()
+                activeAssistantMessageID = assistantMessageID
+                guard insertAssistantMessage(
+                    id: assistantMessageID,
+                    after: insertionAnchor,
+                    in: queuedRequest.sessionID,
+                    settings: activeSettings
+                ) else {
+                    throw NativChatError.invalidResponse
+                }
+                continue
             }
 
             var insertionAnchor = assistantMessageID
@@ -1593,7 +1630,6 @@ final class ChatViewModel: ObservableObject {
                 }
             }
 
-            toolRounds += 1
             assistantMessageID = UUID()
             activeAssistantMessageID = assistantMessageID
             guard insertAssistantMessage(

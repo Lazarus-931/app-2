@@ -562,13 +562,15 @@ final class ChatToolRegistryTests: XCTestCase {
         } catch {}
     }
 
-    func testRoundGateAdvertisesToolsUnderTheCapAndStopsAtIt() {
-        XCTAssertEqual(ChatToolRoundGate.maximumRounds, 4)
-        for round in 0..<ChatToolRoundGate.maximumRounds {
-            XCTAssertTrue(ChatToolRoundGate.advertisesTools(atRound: round), "round \(round) should still advertise tools")
-        }
-        XCTAssertFalse(ChatToolRoundGate.advertisesTools(atRound: ChatToolRoundGate.maximumRounds))
-        XCTAssertFalse(ChatToolRoundGate.advertisesTools(atRound: ChatToolRoundGate.maximumRounds + 3))
+    func testLoopGuardStopsOnlyAnIdenticalConsecutiveBatch() {
+        var guardState = ChatToolLoopGuard()
+        let initial = [makeCall(name: "web_search", arguments: #"{"query":"swift actors"}"#)]
+        let equivalent = [makeCall(name: "web_search", arguments: #"{ "query" : "swift actors" }"#)]
+        let changed = [makeCall(name: "web_search", arguments: #"{"query":"swift actor isolation"}"#)]
+
+        XCTAssertTrue(guardState.allows(initial))
+        XCTAssertFalse(guardState.allows(equivalent))
+        XCTAssertTrue(guardState.allows(changed))
     }
 
     func testSwitchModelIsUnreachableThroughGenericDispatcherExecute() async {

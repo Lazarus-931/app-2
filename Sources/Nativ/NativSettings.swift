@@ -538,7 +538,8 @@ struct NativSettings: Codable, Equatable {
         mcpServers = try container.decodeIfPresent([MCPServerConfig].self, forKey: .mcpServers) ?? defaults.mcpServers
         customTools = try container.decodeIfPresent([CustomTool].self, forKey: .customTools) ?? defaults.customTools
         disabledToolNames = try container.decodeIfPresent([String].self, forKey: .disabledToolNames) ?? defaults.disabledToolNames
-        skills = try container.decodeIfPresent([NativSkill].self, forKey: .skills) ?? defaults.skills
+        skills = (try container.decodeIfPresent([NativSkill].self, forKey: .skills) ?? defaults.skills)
+            .map(\.upgradingLegacyBuiltInDefinition)
         imageGenerationModelID = try container.decodeIfPresent(String.self, forKey: .imageGenerationModelID) ?? defaults.imageGenerationModelID
         textToSpeechModelID = try container.decodeIfPresent(String.self, forKey: .textToSpeechModelID) ?? defaults.textToSpeechModelID
         speechToTextModelID = try container.decodeIfPresent(String.self, forKey: .speechToTextModelID) ?? defaults.speechToTextModelID
@@ -744,6 +745,7 @@ struct NativSettings: Codable, Equatable {
         settings.embeddingModelID = Self.normalizedModelID(settings.embeddingModelID)
         settings.serverAPIKey = ServerAPIAuthentication.normalizedToken(settings.serverAPIKey)
         settings.huggingFaceToken = HuggingFaceAuthentication.normalizedToken(settings.huggingFaceToken)
+        settings.skills = settings.skills.map(\.upgradingLegacyBuiltInDefinition)
         settings.serverHost = Self.normalizedServerHost(settings.serverHost)
         settings.serverPort = min(max(settings.serverPort, 1), 65_535)
         settings.maxTokens = min(max(settings.maxTokens, 1), 262_144)

@@ -9,7 +9,8 @@ enum ChatWebReadToolRegistry {
         credentials: any WebSearchCredentialStoring = KeychainWebSearchCredentialStore(),
         preferences: WebBrowsingPreferences = WebBrowsingPreferences()
     ) -> Bool {
-        (try? credentials.load(for: preferences.searchProvider)) != nil
+        guard let provider = preferences.provider(for: .read) else { return false }
+        return (try? credentials.load(for: provider)) != nil
     }
 
     static let definition = MLXChatToolDefinition(function: MLXChatFunctionDefinition(

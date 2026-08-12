@@ -52,15 +52,29 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertFalse(WebSearchProvider.perplexity.supports(.read))
     }
 
-    func testSearchOnlyProviderKeepsReadToolAvailableForActionableFailure() throws {
+    func testSearchOnlyProviderDoesNotAdvertiseReadWithoutAReader() throws {
         let suiteName = "ChatWebReadToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let preferences = WebBrowsingPreferences(defaults: defaults)
         preferences.searchProvider = .brave
 
-        XCTAssertTrue(ChatWebReadToolRegistry.isConfigured(
+        XCTAssertFalse(ChatWebReadToolRegistry.isConfigured(
             credentials: StubWebReadCredentialStore(keys: [.brave: "key"]),
+            preferences: preferences
+        ))
+    }
+
+    func testSeparateConfiguredPageReaderAdvertisesRead() throws {
+        let suiteName = "ChatWebReadToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
+        preferences.pageReaderProvider = .exa
+
+        XCTAssertTrue(ChatWebReadToolRegistry.isConfigured(
+            credentials: StubWebReadCredentialStore(keys: [.brave: "search", .exa: "read"]),
             preferences: preferences
         ))
     }

@@ -10,6 +10,7 @@ struct NativKit: Identifiable {
     let summary: String
     let symbol: String
     let tint: Color
+    let builtInToolNames: [String]
     let mcpServerIDs: [String]
     let extensionIDs: [String]
     let skills: [NativSkill]
@@ -19,10 +20,19 @@ struct NativKit: Identifiable {
         mcpServerIDs.compactMap { id in MCPCatalogEntry.catalog.first { $0.id == id } }
     }
 
+    var builtInTools: [ChatNativeToolDescriptor] {
+        let descriptors = ChatToolRegistry.descriptors(canEditImage: false)
+        return builtInToolNames.compactMap { name in
+            descriptors.first { $0.definition.function.name == name }
+        }
+    }
+
     /// A one-line inventory of what the kit contains.
     var inventory: String {
         var parts: [String] = []
+        let tools = builtInToolNames.count
         let servers = mcpEntries.count
+        if tools > 0 { parts.append("\(tools) tool\(tools == 1 ? "" : "s")") }
         if servers > 0 { parts.append("\(servers) MCP server\(servers == 1 ? "" : "s")") }
         if !skills.isEmpty { parts.append("\(skills.count) skill\(skills.count == 1 ? "" : "s")") }
         if !extensionIDs.isEmpty { parts.append("\(extensionIDs.count) extension\(extensionIDs.count == 1 ? "" : "s")") }
@@ -31,7 +41,9 @@ struct NativKit: Identifiable {
 
     /// The abilities a person gets when every part of this kit is installed.
     var capabilityNames: [String] {
-        mcpEntries.map(\.name) + skills.map(\.name) + extensionIDs
+        builtInTools.map { descriptor in
+            descriptor.configuration?.displayName ?? descriptor.definition.function.name
+        } + mcpEntries.map(\.name) + skills.map(\.name) + extensionIDs
     }
 }
 
@@ -51,6 +63,7 @@ extension NativKit {
             summary: "Read code, work with Git and GitHub, and pull in docs while you build.",
             symbol: "chevron.left.forwardslash.chevron.right",
             tint: .indigo,
+            builtInToolNames: [],
             mcpServerIDs: ["git", "github", "filesystem", "fetch"],
             extensionIDs: [],
             skills: [
@@ -76,29 +89,16 @@ extension NativKit {
         NativKit(
             id: "research",
             name: "Research",
-            summary: "Gather sources from the web, keep notes, and query your own data.",
+            summary: "Search the web, read primary sources, and synthesize cited findings.",
             symbol: "magnifyingglass",
             tint: .purple,
-            mcpServerIDs: ["fetch", "memory", "sqlite"],
+            builtInToolNames: [
+                ChatWebSearchToolRegistry.toolName,
+                ChatWebReadToolRegistry.toolName,
+            ],
+            mcpServerIDs: [],
             extensionIDs: [],
-            skills: [
-                .kit(
-                    "A2000000-0000-4000-8000-000000000002",
-                    "Researching with sources",
-                    """
-                    You're doing careful research. Prioritize accuracy and traceability.
-
-                    - Use the fetch tool to read primary sources; quote or paraphrase \
-                    with a link back to where each claim came from.
-                    - Record durable findings in the memory tool so they carry across \
-                    the conversation, and recall them before re-fetching.
-                    - Query the SQLite tool for anything in the user's own dataset \
-                    instead of estimating.
-                    - Separate what the sources say from your own inference, and flag \
-                    uncertainty plainly.
-                    """
-                )
-            ]
+            skills: [.deepResearch]
         ),
     ]
 }

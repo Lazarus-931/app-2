@@ -63,7 +63,7 @@ enum ChatCapabilityCatalog {
                 detail: ChatCapabilityKind.skill.rawValue,
                 kind: .skill,
                 systemImage: "sparkles",
-                isAvailable: true
+                isAvailable: ChatToolRegistry.areConfigured($0.requiredBuiltInToolNames)
             )
         }
         items += settings.mcpServers
@@ -96,7 +96,7 @@ enum ChatCapabilityCatalog {
                 detail: $0.summary,
                 kind: .kit,
                 systemImage: $0.symbol,
-                isAvailable: kitIsInstalled($0, snapshot: snapshot)
+                isAvailable: kitIsAvailable($0, snapshot: snapshot)
             )
         }
     }
@@ -105,7 +105,8 @@ enum ChatCapabilityCatalog {
         _ kit: NativKit,
         settings: NativSettings
     ) -> ChatKitSelection {
-        var capabilityIDs = Set(
+        var capabilityIDs = Set(kit.builtInToolNames.map(ChatCapabilityID.builtInTool))
+        capabilityIDs.formUnion(
             kit.skills.compactMap { skill in
                 settings.skills.contains { $0.id == skill.id }
                     ? ChatCapabilityID.skill(skill.id)
@@ -121,12 +122,14 @@ enum ChatCapabilityCatalog {
         return ChatKitSelection(id: kit.id, capabilityIDs: capabilityIDs)
     }
 
-    private static func kitIsInstalled(
+    private static func kitIsAvailable(
         _ kit: NativKit,
         snapshot: ChatKitSelection
     ) -> Bool {
-        let expectedCount = kit.mcpEntries.count + kit.skills.count
-        return kit.extensionIDs.isEmpty && snapshot.capabilityIDs.count == expectedCount
+        let expectedCount = kit.builtInToolNames.count + kit.mcpEntries.count + kit.skills.count
+        return kit.extensionIDs.isEmpty
+            && snapshot.capabilityIDs.count == expectedCount
+            && ChatToolRegistry.areConfigured(Set(kit.builtInToolNames))
     }
 
     private static var nativeToolItems: [ChatCapabilityItem] {
@@ -204,7 +207,18 @@ enum ChatCapabilityResolver {
             settings: settings
         )
         var tools: [ResolvedChatTool] = []
+        let configuredSkills = Dictionary(
+            settings.skills.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        let selectedSkillIDs = Set(capabilityIDs.compactMap(\.skillID))
+        let requiredBuiltInToolNames = selectedSkillIDs.reduce(into: Set<String>()) { result, id in
+            guard let toolNames = configuredSkills[id]?.requiredBuiltInToolNames,
+                  ChatToolRegistry.areConfigured(toolNames) else { return }
+            result.formUnion(toolNames)
+        }
         let selectedBuiltInToolNames = Set(capabilityIDs.compactMap(\.builtInToolName))
+            .union(requiredBuiltInToolNames)
 
         for descriptor in ChatToolRegistry.descriptors(canEditImage: canEditImage) {
             guard descriptor.isSelected(by: selectedBuiltInToolNames) else {
@@ -231,18 +245,14 @@ enum ChatCapabilityResolver {
         }
 
         var skillInstructions: [String] = []
-        let configuredSkills = Dictionary(
-            settings.skills.map { ($0.id, $0) },
-            uniquingKeysWith: { current, _ in current }
-        )
-        let orderedSkillIDs = capabilityIDs.compactMap(\.skillID).sorted {
+        let orderedSkillIDs = selectedSkillIDs.sorted {
             $0.uuidString < $1.uuidString
         }
         for id in orderedSkillIDs {
-            let instructions = configuredSkills[id]?.instructions
-            if let instructions, !instructions.isEmpty {
-                skillInstructions.append(instructions)
-            }
+            guard let skill = configuredSkills[id],
+                  ChatToolRegistry.areConfigured(skill.requiredBuiltInToolNames),
+                  !skill.instructions.isEmpty else { continue }
+            skillInstructions.append(skill.instructions)
         }
 
         return ResolvedChatCapabilities(

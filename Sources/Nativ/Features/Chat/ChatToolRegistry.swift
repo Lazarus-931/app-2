@@ -24,11 +24,39 @@ struct ChatToolExecutionOutcome {
     let attachments: [ChatImageAttachment]
 }
 
-enum ChatToolRoundGate {
-    static let maximumRounds = 4
+struct ChatToolLoopGuard {
+    private var previousBatch: [String]?
 
-    static func advertisesTools(atRound round: Int) -> Bool {
-        round < maximumRounds
+    mutating func allows(_ calls: [MLXChatToolCall]) -> Bool {
+        let batch = calls.map(Self.signature).sorted()
+        defer { previousBatch = batch }
+        return batch != previousBatch
+    }
+
+    static let repeatedCallPayload = """
+    {"ok":false,"error":{"code":"repeated_tool_calls",\
+    "message":"These exact tool calls already ran. Use their results to answer, or change the arguments."}}
+    """
+
+    private static func signature(_ call: MLXChatToolCall) -> String {
+        let name = call.function?.name ?? ""
+        let arguments = canonicalJSON(call.function?.arguments)
+        return "\(name)\n\(arguments)"
+    }
+
+    private static func canonicalJSON(_ value: String?) -> String {
+        guard let value else { return "" }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let data = trimmed.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              JSONSerialization.isValidJSONObject(object),
+              let canonical = try? JSONSerialization.data(
+                  withJSONObject: object,
+                  options: [.sortedKeys, .withoutEscapingSlashes]
+              ) else {
+            return trimmed
+        }
+        return String(decoding: canonical, as: UTF8.self)
     }
 }
 
@@ -138,6 +166,14 @@ enum ChatToolRegistry {
             selection: .companion(of: ChatWebSearchToolRegistry.toolName)
         ))
         return tools
+    }
+
+    static func areConfigured(_ toolNames: Set<String>) -> Bool {
+        let tools = descriptors(canEditImage: false).filter {
+            toolNames.contains($0.definition.function.name)
+        }
+        return tools.count == toolNames.count
+            && tools.allSatisfy { $0.configuration?.isConfigured ?? true }
     }
 }
 

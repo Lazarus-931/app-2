@@ -73,6 +73,46 @@ final class ChatCapabilitySelectionTests: XCTestCase {
         XCTAssertTrue(selection.kits.isEmpty)
     }
 
+    func testResearchKitUsesNativeBrowsing() throws {
+        let research = try XCTUnwrap(NativKit.all.first { $0.id == "research" })
+
+        XCTAssertEqual(
+            Set(research.builtInToolNames),
+            [ChatWebSearchToolRegistry.toolName, ChatWebReadToolRegistry.toolName]
+        )
+        XCTAssertTrue(research.mcpServerIDs.isEmpty)
+        XCTAssertEqual(research.skills.map(\.name), ["Deep Research"])
+        XCTAssertEqual(research.skills[0].requiredBuiltInToolNames, Set(research.builtInToolNames))
+    }
+
+    func testSettingsUpgradeOnlyTheUneditedLegacyResearchSkill() {
+        let legacyInstructions = """
+        You're doing careful research. Prioritize accuracy and traceability.
+
+        - Use the fetch tool to read primary sources; quote or paraphrase with a link back to where \
+        each claim came from.
+        - Record durable findings in the memory tool so they carry across the conversation, and \
+        recall them before re-fetching.
+        - Query the SQLite tool for anything in the user's own dataset instead of estimating.
+        - Separate what the sources say from your own inference, and flag uncertainty plainly.
+        """
+        let legacy = NativSkill(
+            id: NativSkill.deepResearchID,
+            name: "Researching with sources",
+            instructions: legacyInstructions,
+            isEnabled: false
+        )
+        var edited = legacy
+        edited.instructions += "\nKeep my custom instructions."
+
+        let normalized = NativSettings(skills: [legacy, edited]).normalized()
+
+        XCTAssertEqual(normalized.skills[0].name, NativSkill.deepResearch.name)
+        XCTAssertEqual(normalized.skills[0].instructions, NativSkill.deepResearch.instructions)
+        XCTAssertFalse(normalized.skills[0].isEnabled)
+        XCTAssertEqual(normalized.skills[1], edited)
+    }
+
     @MainActor
     func testResolverUsesOneRouteForEachAdvertisedTool() {
         let selectedName = ChatSystemMonitorToolRegistry.toolName

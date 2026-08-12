@@ -30,7 +30,7 @@ struct KitsSectionView: View {
     var body: some View {
         HubSectionScaffold(
             title: "Kits",
-            subtitle: "Ready-made sets of MCP servers, skills, and extension capabilities you can add to a chat."
+            subtitle: "Ready-made sets of tools, MCP servers, skills, and extensions you can add to a chat."
         ) {
             EmptyView()
         } content: {
@@ -150,14 +150,17 @@ private struct KitDetailView: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
-            VStack(alignment: .leading, spacing: 22) {
-                mcpGroup
-                if !kit.skills.isEmpty { skillsGroup }
-                if !kit.extensionIDs.isEmpty { extensionsGroup }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    if !kit.builtInTools.isEmpty { toolsGroup }
+                    if !kit.mcpEntries.isEmpty { mcpGroup }
+                    if !kit.skills.isEmpty { skillsGroup }
+                    if !kit.extensionIDs.isEmpty { extensionsGroup }
+                }
+                .padding(20)
             }
-            .padding(20)
         }
-        .frame(width: 560)
+        .frame(width: 560, height: 560)
     }
 
     private var header: some View {
@@ -191,6 +194,21 @@ private struct KitDetailView: View {
     }
 
     // MARK: Groups
+
+    private var toolsGroup: some View {
+        KitGroup(title: "Built-in tools", caption: "Available when this kit is selected in a chat.") {
+            ForEach(kit.builtInTools, id: \.definition.function.name) { tool in
+                KitPartRow(
+                    symbol: tool.configuration?.systemImage ?? "wrench.and.screwdriver",
+                    tint: kit.tint,
+                    logoAssetName: nil,
+                    title: tool.configuration?.displayName ?? tool.definition.function.name,
+                    subtitle: nil,
+                    isReady: tool.configuration?.isConfigured ?? true
+                )
+            }
+        }
+    }
 
     private var mcpGroup: some View {
         KitGroup(title: "MCP servers & tools", caption: "Their tools become available in chat and appear under Tools.") {
