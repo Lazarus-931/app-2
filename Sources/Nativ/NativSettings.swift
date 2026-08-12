@@ -77,11 +77,16 @@ struct ServerAPIKeychain: ServerAPICredentialStoring {
     }
 
     private var baseQuery: [String: Any] {
+        // TEMP (dev/app-2 builds only — do NOT merge into #281):
+        // The data-protection keychain requires an application-identifier /
+        // keychain-access-group entitlement that only the properly-signed Nativ
+        // build carries. Ad-hoc-signed dev builds lack it, so SecItem* fails with
+        // errSecMissingEntitlement. Fall back to the file keychain for dev builds.
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecUseDataProtectionKeychain as String: true
+            kSecUseDataProtectionKeychain as String: false
         ]
     }
 }
