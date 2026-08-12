@@ -110,7 +110,7 @@ struct MCPSectionView: View {
 
         return MCPServerRow(
             server: presentation,
-            state: configured.flatMap { host.states[$0.id] } ?? .disabled,
+            state: configured.flatMap { host.states[$0.id] } ?? .available,
             onToggle: { toggle(entry) },
             onReconnect: configured.map { server in { host.reconnect(server.id) } },
             onEdit: { editing = presentation },
@@ -222,7 +222,7 @@ private struct MCPServerRow: View {
         case .connected: .success
         case .connecting: .warning
         case .failed: .danger
-        case .disabled, .none: .neutral
+        case .available, .none: .neutral
         }
     }
 
@@ -231,8 +231,7 @@ private struct MCPServerRow: View {
         case .connected(let count): "\(count) tool\(count == 1 ? "" : "s")"
         case .connecting: "Connecting\u{2026}"
         case .failed(let message): message.isEmpty ? "Failed to connect" : message
-        case .disabled: "Off"
-        case .none: server.isEnabled ? "Not connected" : "Off"
+        case .available, .none: server.isEnabled ? "Not connected" : "Off"
         }
     }
 }
