@@ -1565,7 +1565,8 @@ final class ChatViewModel: ObservableObject {
                             )
                         }
                     )
-                    let outcome: ChatToolExecutionOutcome = switch executionRoute {
+                    let outcome: ChatToolExecutionOutcome
+                    switch executionRoute {
                     case .custom:
                         guard let customTool else {
                             throw CustomToolError.invalidResponse
@@ -1574,7 +1575,7 @@ final class ChatViewModel: ObservableObject {
                             customTool,
                             argumentsJSON: toolCall.function?.arguments
                         )
-                        ChatToolExecutionOutcome(content: result, attachments: [])
+                        outcome = ChatToolExecutionOutcome(content: result, attachments: [])
                     case .mcpServer(let serverID):
                         guard let host = mcpHost,
                               mcpLease?.serverIDs.contains(serverID) == true
@@ -1586,9 +1587,9 @@ final class ChatViewModel: ObservableObject {
                             argumentsJSON: toolCall.function?.arguments,
                             serverID: serverID
                         )
-                        ChatToolExecutionOutcome(content: result, attachments: [])
+                        outcome = ChatToolExecutionOutcome(content: result, attachments: [])
                     case .native:
-                        try await ChatToolDispatcher.execute(call: toolCall, context: context)
+                        outcome = try await ChatToolDispatcher.execute(call: toolCall, context: context)
                     }
                     updateToolMessage(
                         toolMessageID,
