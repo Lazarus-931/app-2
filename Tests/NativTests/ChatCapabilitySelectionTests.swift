@@ -73,70 +73,63 @@ final class ChatCapabilitySelectionTests: XCTestCase {
         XCTAssertTrue(selection.kits.isEmpty)
     }
 
-    func testResearchKitUsesNativeBrowsing() throws {
-        let research = try XCTUnwrap(NativKit.all.first { $0.id == "research" })
-
-        XCTAssertEqual(
-            Set(research.builtInToolNames),
-            [ChatWebSearchToolRegistry.toolName, ChatWebReadToolRegistry.toolName]
-        )
-        XCTAssertTrue(research.mcpServerIDs.isEmpty)
-        XCTAssertEqual(research.skills.map(\.name), ["Deep Research"])
-        XCTAssertEqual(research.skills[0].requiredBuiltInToolNames, Set(research.builtInToolNames))
-    }
-
-    func testSettingsUpgradeOnlyTheUneditedLegacyResearchSkill() {
-        let legacyInstructions = """
-        You're doing careful research. Prioritize accuracy and traceability.
-
-        - Use the fetch tool to read primary sources; quote or paraphrase with a link back to where \
-        each claim came from.
-        - Record durable findings in the memory tool so they carry across the conversation, and \
-        recall them before re-fetching.
-        - Query the SQLite tool for anything in the user's own dataset instead of estimating.
-        - Separate what the sources say from your own inference, and flag uncertainty plainly.
-        """
-        let legacy = NativSkill(
-            id: NativSkill.deepResearchID,
-            name: "Researching with sources",
-            instructions: legacyInstructions,
-            isEnabled: false
-        )
+    func testSettingsUpgradeTheLegacyResearchSkillButPreserveAnEditedOverride() {
+        let legacy = legacyResearchSkill(isEnabled: false)
         var edited = legacy
         edited.instructions += "\nKeep my custom instructions."
+        var upgraded = NativSkill.deepResearch
+        upgraded.isEnabled = false
 
         let normalized = NativSettings(skills: [legacy, edited]).normalized()
 
-        XCTAssertEqual(normalized.skills[0].name, NativSkill.deepResearch.name)
-        XCTAssertEqual(normalized.skills[0].instructions, NativSkill.deepResearch.instructions)
-        XCTAssertFalse(normalized.skills[0].isEnabled)
-        XCTAssertEqual(normalized.skills[1], edited)
+        XCTAssertEqual(normalized.skills, [upgraded, edited])
     }
 
-    @MainActor
-    func testResolverUsesOneRouteForEachAdvertisedTool() {
-        let selectedName = ChatSystemMonitorToolRegistry.toolName
-        let selection = ChatCapabilitySelection(
-            included: [.builtInTool(selectedName)]
-        )
+    func testSettingsDecodeUpgradesTheLegacyResearchSkill() throws {
+        let legacy = legacyResearchSkill(isEnabled: true)
+        let data = try PropertyListEncoder().encode(NativSettings(skills: [legacy]))
 
-        let resolved = ChatCapabilityResolver.resolve(
-            selection: selection,
-            settings: NativSettings(),
-            mcpHost: nil,
-            canEditImage: false
-        )
+        let decoded = try PropertyListDecoder().decode(NativSettings.self, from: data)
 
+        XCTAssertEqual(decoded.skills, [.deepResearch])
+    }
+
+    func testDeepResearchIsAvailableWithoutInstallingTheResearchKit() {
+        let skills = ChatSkillCatalog.skills(overrides: [])
+
+        XCTAssertEqual(skills.filter { $0.id == NativSkill.deepResearchID }, [.deepResearch])
         XCTAssertEqual(
-            resolved.executionRoutes[selectedName],
-            .native
-        )
-        XCTAssertNil(
-            resolved.executionRoutes[ChatModelLibraryToolRegistry.toolName]
-        )
-        XCTAssertEqual(
-            Set(resolved.toolDefinitions.map(\.function.name)),
-            Set(resolved.executionRoutes.keys)
+            NativSkill.deepResearch.requiredBuiltInToolNames,
+            [ChatWebSearchToolRegistry.toolName, ChatWebReadToolRegistry.toolName]
         )
     }
+
+    func testEditedDeepResearchOverrideWinsOverTheBundledDefinition() {
+        var override = NativSkill.deepResearch
+        override.name = "My Research"
+        override.instructions = "Use my research workflow."
+
+        let skills = ChatSkillCatalog.skills(overrides: [override])
+
+        XCTAssertEqual(skills.first { $0.id == NativSkill.deepResearchID }, override)
+    }
+
+    private func legacyResearchSkill(isEnabled: Bool) -> NativSkill {
+        NativSkill(
+            id: NativSkill.deepResearchID,
+            name: "Researching with sources",
+            instructions: """
+            You're doing careful research. Prioritize accuracy and traceability.
+
+            - Use the fetch tool to read primary sources; quote or paraphrase with a link back to where each \
+            claim came from.
+            - Record durable findings in the memory tool so they carry across the conversation, and recall \
+            them before re-fetching.
+            - Query the SQLite tool for anything in the user's own dataset instead of estimating.
+            - Separate what the sources say from your own inference, and flag uncertainty plainly.
+            """,
+            isEnabled: isEnabled
+        )
+    }
+
 }

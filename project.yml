@@ -182,6 +182,7 @@ targets:
       - path: Sources/Nativ/Features/Chat/Tools/ChatWebReadTool.swift
       - path: Sources/Nativ/Features/Browsing/WebBrowsingError.swift
       - path: Sources/Nativ/Features/Browsing/WebBrowsingTransport.swift
+      - path: Sources/Nativ/Features/Browsing/WebReadContentSelector.swift
       - path: Sources/Nativ/Features/Browsing/WebReadService.swift
       - path: Sources/Nativ/Features/Browsing/WebSearchProvider.swift
       - path: Sources/Nativ/Features/Browsing/WebSearchSettingsView.swift

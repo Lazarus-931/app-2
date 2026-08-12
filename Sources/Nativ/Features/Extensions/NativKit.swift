@@ -123,7 +123,7 @@ enum NativKitSetup {
             }
         }
 
-        for skill in kit.skills {
+        for skill in kit.skills where !skill.isChatBuiltIn {
             if !model.settings.skills.contains(where: { $0.id == skill.id }) {
                 model.settings.skills.append(skill)
             }
@@ -157,7 +157,9 @@ enum NativKitSetup {
             where matchingServerIndex(for: entry, in: model.settings.mcpServers) == nil {
             names.append(entry.name)
         }
-        for skill in kit.skills where !model.settings.skills.contains(where: { $0.id == skill.id }) {
+        for skill in kit.skills
+            where !skill.isChatBuiltIn
+                && !model.settings.skills.contains(where: { $0.id == skill.id }) {
             names.append(skill.name)
         }
         for extensionID in kit.extensionIDs where !manager.isEnabled(extensionID: extensionID) {

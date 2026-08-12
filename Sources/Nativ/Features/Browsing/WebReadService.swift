@@ -1,6 +1,6 @@
 import Foundation
 
-struct WebReadPage: Codable, Equatable, Sendable {
+struct WebReadPage: Encodable, Equatable, Sendable {
     let url: String
     let title: String?
     let content: String?
@@ -8,6 +8,21 @@ struct WebReadPage: Codable, Equatable, Sendable {
     let error: WebReadPageError?
 
     var isSuccess: Bool { content != nil && error == nil }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(url, forKey: .url)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(content, forKey: .content)
+        if truncated {
+            try container.encode(true, forKey: .truncated)
+        }
+        try container.encodeIfPresent(error, forKey: .error)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case url, title, content, truncated, error
+    }
 }
 
 struct WebReadPageError: Codable, Equatable, Sendable {
@@ -20,7 +35,22 @@ struct WebReadService: Sendable {
         let url: String
         let title: String?
         let content: String?
+        let isExcerpt: Bool
         let error: WebReadPageError?
+
+        init(
+            url: String,
+            title: String?,
+            content: String?,
+            isExcerpt: Bool = false,
+            error: WebReadPageError?
+        ) {
+            self.url = url
+            self.title = title
+            self.content = content
+            self.isExcerpt = isExcerpt
+            self.error = error
+        }
     }
 
     private let transport: WebBrowsingTransport
@@ -34,7 +64,8 @@ struct WebReadService: Sendable {
     func read(
         provider: WebSearchProvider,
         apiKey: String,
-        urls: [String]
+        urls: [String],
+        focus: String? = nil
     ) async throws -> [WebReadPage] {
         guard provider.supports(.read) else {
             throw WebReadError.unsupportedProvider(provider)
@@ -52,11 +83,20 @@ struct WebReadService: Sendable {
         guard Set(normalizedURLs).count == normalizedURLs.count else {
             throw WebReadError.invalidArguments
         }
+        let focus = focus?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard focus?.count ?? 0 <= ChatWebReadToolRegistry.maximumFocusLength else {
+            throw WebReadError.invalidArguments
+        }
+        let normalizedFocus = focus?.isEmpty == false ? focus : nil
 
         let documents: [Document]
         switch provider {
         case .exa:
-            documents = try await readExa(apiKey: apiKey, urls: normalizedURLs)
+            documents = try await readExa(
+                apiKey: apiKey,
+                urls: normalizedURLs,
+                focus: normalizedFocus
+            )
         case .nimble:
             documents = try await readIndividually(
                 provider: provider,
@@ -75,27 +115,58 @@ struct WebReadService: Sendable {
             throw WebReadError.unsupportedProvider(provider)
         }
 
-        return boundedPages(documents)
+        return boundedPages(documents, focus: normalizedFocus)
     }
 
-    private func readExa(apiKey: String, urls: [String]) async throws -> [Document] {
+    private func readExa(
+        apiKey: String,
+        urls: [String],
+        focus: String?
+    ) async throws -> [Document] {
         let provider = WebSearchProvider.exa
+        let highlights = focus.flatMap { value in
+            value.isEmpty
+                ? nil
+                : ExaHighlightsRequest(
+                    query: value,
+                    maxCharacters: maximumCharactersPerPage
+                )
+        }
         let request = try transport.postRequest(
             url: "https://api.exa.ai/contents",
             provider: provider,
             apiKey: apiKey,
             authentication: .header("x-api-key"),
-            body: ExaReadRequest(urls: urls, text: true),
+            body: ExaReadRequest(
+                urls: urls,
+                text: highlights == nil ? true : nil,
+                highlights: highlights
+            ),
             timeout: 30
         )
         let response: ExaReadResponse = try await transport.response(for: request, provider: provider)
         return urls.map { requestedURL in
             guard let result = response.results.first(where: {
                 $0.id == requestedURL || $0.url == requestedURL
-            }), let content = normalizedContent(result.text) else {
+            }) else {
                 return Document(
                     url: requestedURL,
                     title: nil,
+                    content: nil,
+                    error: WebReadPageError(
+                        code: "page_unavailable",
+                        message: "Exa could not read this page."
+                    )
+                )
+            }
+            let highlights = result.highlights?
+                .compactMap { normalizedContent($0) }
+                .joined(separator: "\n\n")
+            let focusedContent = normalizedContent(highlights)
+            guard let content = focusedContent ?? normalizedContent(result.text) else {
+                return Document(
+                    url: requestedURL,
+                    title: normalizedTitle(result.title),
                     content: nil,
                     error: WebReadPageError(
                         code: "page_unavailable",
@@ -107,6 +178,7 @@ struct WebReadService: Sendable {
                 url: requestedURL,
                 title: normalizedTitle(result.title),
                 content: content,
+                isExcerpt: focusedContent != nil,
                 error: nil
             )
         }
@@ -191,7 +263,7 @@ struct WebReadService: Sendable {
         return documents
     }
 
-    private func boundedPages(_ documents: [Document]) -> [WebReadPage] {
+    private func boundedPages(_ documents: [Document], focus: String?) -> [WebReadPage] {
         let successfulDocumentCount = max(
             documents.filter { $0.content != nil && $0.error == nil }.count,
             1
@@ -213,13 +285,13 @@ struct WebReadService: Sendable {
             }
 
             let limit = min(perPageLimit, remainingCharacters)
-            let boundedContent = content.prefixString(limit)
-            remainingCharacters -= boundedContent.count
+            let selection = WebReadContentSelector.select(content, focus: focus, limit: limit)
+            remainingCharacters -= selection.content.count
             return WebReadPage(
                 url: document.url,
                 title: document.title,
-                content: boundedContent,
-                truncated: boundedContent.count < content.count,
+                content: selection.content,
+                truncated: document.isExcerpt || selection.truncated,
                 error: nil
             )
         }
@@ -235,7 +307,7 @@ struct WebReadService: Sendable {
     private func normalizedTitle(_ title: String?) -> String? {
         let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard title?.isEmpty == false else { return nil }
-        return title?.prefixString(200)
+        return title.map { String($0.prefix(200)) }
     }
 }
 
@@ -348,7 +420,13 @@ enum WebReadURLPolicy {
 
 private struct ExaReadRequest: Encodable {
     let urls: [String]
-    let text: Bool
+    let text: Bool?
+    let highlights: ExaHighlightsRequest?
+}
+
+private struct ExaHighlightsRequest: Encodable {
+    let query: String
+    let maxCharacters: Int
 }
 
 private struct ExaReadResponse: Decodable {
@@ -360,6 +438,7 @@ private struct ExaReadResult: Decodable {
     let title: String?
     let url: String?
     let text: String?
+    let highlights: [String]?
 }
 
 private struct NimbleReadRequest: Encodable {
@@ -420,7 +499,7 @@ enum WebReadError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidArguments:
-            "web_read needs one to four unique URLs."
+            "web_read needs one to four unique URLs and an optional focus no longer than \(ChatWebReadToolRegistry.maximumFocusLength) characters."
         case .invalidURL:
             "web_read accepts only public HTTP or HTTPS URLs without embedded credentials."
         case .pageReaderNotConfigured(let searchProvider):
@@ -446,11 +525,5 @@ private extension WebBrowsingError {
              .unexpectedFailure:
             false
         }
-    }
-}
-
-private extension String {
-    func prefixString(_ maximumLength: Int) -> String {
-        String(prefix(maximumLength))
     }
 }

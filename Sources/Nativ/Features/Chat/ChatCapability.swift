@@ -56,7 +56,7 @@ enum ChatCapabilityCatalog {
                 isAvailable: true
             )
         }
-        items += settings.skills.map {
+        items += ChatSkillCatalog.skills(overrides: settings.skills).map {
             ChatCapabilityItem(
                 reference: .capability(.skill($0.id)),
                 title: $0.name.isEmpty ? "Untitled skill" : $0.name,
@@ -108,7 +108,7 @@ enum ChatCapabilityCatalog {
         var capabilityIDs = Set(kit.builtInToolNames.map(ChatCapabilityID.builtInTool))
         capabilityIDs.formUnion(
             kit.skills.compactMap { skill in
-                settings.skills.contains { $0.id == skill.id }
+                skill.isChatBuiltIn || settings.skills.contains { $0.id == skill.id }
                     ? ChatCapabilityID.skill(skill.id)
                     : nil
             }
@@ -208,7 +208,7 @@ enum ChatCapabilityResolver {
         )
         var tools: [ResolvedChatTool] = []
         let configuredSkills = Dictionary(
-            settings.skills.map { ($0.id, $0) },
+            ChatSkillCatalog.skills(overrides: settings.skills).map { ($0.id, $0) },
             uniquingKeysWith: { current, _ in current }
         )
         let selectedSkillIDs = Set(capabilityIDs.compactMap(\.skillID))

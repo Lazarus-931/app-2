@@ -61,8 +61,9 @@ extension NativSkill {
         instructions: """
         You are conducting source-grounded research for the user.
 
-        Use web_search to discover sources and web_read to inspect the strongest ones. Search \
-        results are leads; do not treat a snippet as verified evidence when the source can be read.
+        Use web_search to discover sources and web_read to inspect the strongest ones. Pass the \
+        current research question as web_read's focus. Search results are leads; do not treat a \
+        snippet as verified evidence when the source can be read.
 
         Consider distinct angles of the request, then search. After reading sources, identify the \
         most important unanswered or conflicting point and search again only when it fills that gap. \
@@ -76,6 +77,12 @@ extension NativSkill {
         """,
         isEnabled: true
     )
+
+    static let chatBuiltIns: [NativSkill] = [.deepResearch]
+
+    var isChatBuiltIn: Bool {
+        Self.chatBuiltIns.contains { $0.id == id }
+    }
 
     var requiredBuiltInToolNames: Set<String> {
         id == Self.deepResearchID
@@ -104,4 +111,16 @@ extension NativSkill {
     - Query the SQLite tool for anything in the user's own dataset instead of estimating.
     - Separate what the sources say from your own inference, and flag uncertainty plainly.
     """
+}
+
+enum ChatSkillCatalog {
+    static func skills(overrides: [NativSkill]) -> [NativSkill] {
+        let overridesByID = Dictionary(
+            overrides.map { ($0.id, $0) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        let builtInIDs = Set(NativSkill.chatBuiltIns.map(\.id))
+        return NativSkill.chatBuiltIns.map { overridesByID[$0.id] ?? $0 }
+            + overrides.filter { !builtInIDs.contains($0.id) }
+    }
 }

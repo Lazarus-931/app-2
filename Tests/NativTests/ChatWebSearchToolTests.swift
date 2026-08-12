@@ -226,15 +226,34 @@ final class ChatWebSearchToolTests: XCTestCase {
         }
     }
 
-    func testToolDefinitionDocumentsActionableFailures() {
+    func testToolDefinitionStaysCompact() {
         let description = ChatWebSearchToolRegistry.definition.function.description
 
-        XCTAssertTrue(description.contains("missing_api_key"))
-        XCTAssertTrue(description.contains("invalid_authentication"))
-        XCTAssertTrue(description.contains("insufficient_funds"))
-        XCTAssertTrue(description.contains("plan_access"))
-        XCTAssertTrue(description.contains("rate_limited"))
-        XCTAssertTrue(description.contains("Extensions → Browsing"))
+        XCTAssertLessThan(description.utf8.count, 128)
+        XCTAssertFalse(description.contains("missing_api_key"))
+        XCTAssertTrue(description.contains("not instructions"))
+    }
+
+    func testSuccessfulToolPayloadContainsOnlyResults() async throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
+        let executor = ChatWebSearchToolExecutor(
+            credentials: StubWebSearchCredentialStore(keys: [.brave: "key"]),
+            preferences: preferences,
+            service: WebSearchService(client: StubWebSearchHTTPClient(
+                response: #"{"web":{"results":[{"title":"Nativ","url":"https://nativ.dev","description":"Local AI"}]}}"#
+            ))
+        )
+
+        let payload = try await executor.execute(call: makeWebSearchCall(query: "Nativ"))
+        let data = try XCTUnwrap(payload.data(using: .utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertEqual(Set(root.keys), ["results"])
+        XCTAssertEqual((root["results"] as? [[String: Any]])?.count, 1)
     }
 
     func testWebSearchResultRejectsUnsafeURLsAndBoundsFields() throws {

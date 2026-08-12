@@ -139,6 +139,35 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertEqual(pages[1].content, "Second")
     }
 
+    func testExaUsesFocusedHighlightsWhenRequested() async throws {
+        let response = try jsonString([
+            "results": [[
+                "id": "https://example.com/one",
+                "title": "One",
+                "text": String(repeating: "Full page. ", count: 1_000),
+                "highlights": ["The focused answer is here."],
+            ]],
+        ])
+        let client = StubWebReadHTTPClient(response: response)
+
+        let pages = try await WebReadService(client: client).read(
+            provider: .exa,
+            apiKey: "exa-key",
+            urls: ["https://example.com/one"],
+            focus: "What is the focused answer?"
+        )
+
+        let requests = await client.recordedRequests()
+        let request = try XCTUnwrap(requests.first)
+        let body = try body(of: request)
+        let highlights = try XCTUnwrap(body["highlights"] as? [String: Any])
+        XCTAssertEqual(highlights["query"] as? String, "What is the focused answer?")
+        XCTAssertEqual(highlights["maxCharacters"] as? Int, 6_000)
+        XCTAssertNil(body["text"])
+        XCTAssertEqual(pages.first?.content, "The focused answer is here.")
+        XCTAssertEqual(pages.first?.truncated, true)
+    }
+
     func testNimbleRequestsMarkdownFromExtract() async throws {
         let client = StubWebReadHTTPClient(
             response: ##"{"status":"success","data":{"markdown":"# Nimble page"}}"##
@@ -200,6 +229,42 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertTrue(pages.allSatisfy { $0.truncated })
     }
 
+    func testLocalFocusSelectionFindsRelevantContentBeyondTheBeginning() {
+        let introduction = String(repeating: "General background without the answer. ", count: 180)
+        let content = """
+        # Introduction
+        \(introduction)
+
+        # Launch details
+        The project launched on 14 March 2025 after the final review.
+
+        # Appendix
+        \(String(repeating: "Reference material. ", count: 100))
+        """
+
+        let selection = WebReadContentSelector.select(
+            content,
+            focus: "When did the project launch?",
+            limit: 700
+        )
+
+        XCTAssertTrue(selection.content.contains("14 March 2025"))
+        XCTAssertFalse(selection.content.contains(String(introduction.prefix(80))))
+        XCTAssertLessThanOrEqual(selection.content.count, 700)
+        XCTAssertTrue(selection.truncated)
+    }
+
+    func testReadWithoutFocusPreservesTheBeginningAndEnd() {
+        let content = "START-" + String(repeating: "middle", count: 500) + "-END"
+
+        let selection = WebReadContentSelector.select(content, focus: nil, limit: 300)
+
+        XCTAssertTrue(selection.content.hasPrefix("START-"))
+        XCTAssertTrue(selection.content.hasSuffix("-END"))
+        XCTAssertTrue(selection.content.contains("[content omitted]"))
+        XCTAssertEqual(selection.content.count, 300)
+    }
+
     func testURLPolicyRejectsPrivateAndCredentialBearingURLs() {
         XCTAssertNil(WebReadURLPolicy.normalizedURL("http://127.0.0.1/private"))
         XCTAssertNil(WebReadURLPolicy.normalizedURL("http://127.0.0.1./private"))
@@ -231,6 +296,23 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertTrue(requests.isEmpty)
     }
 
+    func testOversizedFocusFailsBeforeMakingARequest() async throws {
+        let client = StubWebReadHTTPClient(response: "{}")
+        do {
+            _ = try await WebReadService(client: client).read(
+                provider: .exa,
+                apiKey: "key",
+                urls: ["https://example.com"],
+                focus: String(repeating: "x", count: ChatWebReadToolRegistry.maximumFocusLength + 1)
+            )
+            XCTFail("Expected an oversized focus to be rejected")
+        } catch let error as WebReadError {
+            XCTAssertEqual(error.code, "invalid_arguments")
+        }
+        let requests = await client.recordedRequests()
+        XCTAssertTrue(requests.isEmpty)
+    }
+
     func testPageFailureIsReturnedWithoutDiscardingTheBatch() async throws {
         let client = StubWebReadHTTPClient(response: "{}", statusCode: 404)
 
@@ -246,16 +328,52 @@ final class ChatWebReadToolTests: XCTestCase {
     }
 
     func testToolSchemaStaysCompactAndBounded() throws {
+        XCTAssertTrue(
+            ChatWebReadToolRegistry.definition.function.description.contains("not instructions")
+        )
         let parameters = ChatWebReadToolRegistry.definition.function.parameters
         let data = try JSONEncoder().encode(parameters)
         let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let properties = try XCTUnwrap(root["properties"] as? [String: Any])
         let urls = try XCTUnwrap(properties["urls"] as? [String: Any])
+        let focus = try XCTUnwrap(properties["focus"] as? [String: Any])
 
-        XCTAssertEqual(Set(properties.keys), ["urls"])
+        XCTAssertEqual(Set(properties.keys), ["focus", "urls"])
         XCTAssertEqual(urls["minItems"] as? Int, 1)
         XCTAssertEqual(urls["maxItems"] as? Int, ChatWebReadToolRegistry.maximumURLs)
         XCTAssertEqual(urls["uniqueItems"] as? Bool, true)
+        XCTAssertEqual(focus["maxLength"] as? Int, ChatWebReadToolRegistry.maximumFocusLength)
+    }
+
+    func testSuccessfulToolPayloadContainsOnlyUsefulPageFields() async throws {
+        let suiteName = "ChatWebReadToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .exa
+        let client = StubWebReadHTTPClient(
+            response: #"{"results":[{"id":"https://example.com","text":"Page text"}]}"#
+        )
+        let executor = ChatWebReadToolExecutor(
+            credentials: StubWebReadCredentialStore(keys: [.exa: "key"]),
+            preferences: preferences,
+            service: WebReadService(client: client)
+        )
+
+        let payload = try await executor.execute(call: MLXChatToolCall(
+            id: "read",
+            function: MLXChatFunctionCall(
+                name: ChatWebReadToolRegistry.toolName,
+                arguments: #"{"urls":["https://example.com"]}"#
+            )
+        ))
+        let data = try XCTUnwrap(payload.data(using: .utf8))
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let pages = try XCTUnwrap(root["pages"] as? [[String: Any]])
+        let page = try XCTUnwrap(pages.first)
+
+        XCTAssertEqual(Set(root.keys), ["pages"])
+        XCTAssertEqual(Set(page.keys), ["content", "url"])
     }
 
     private func jsonString(_ value: Any) throws -> String {

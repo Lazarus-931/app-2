@@ -234,7 +234,8 @@ private struct KitDetailView: View {
                     logoAssetName: nil,
                     title: skill.name,
                     subtitle: nil,
-                    isReady: model.settings.skills.contains { $0.id == skill.id }
+                    isReady: skill.isChatBuiltIn
+                        || model.settings.skills.contains { $0.id == skill.id }
                 )
             }
         }
