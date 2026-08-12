@@ -117,9 +117,10 @@ private struct ChatTranscriptView: View {
     }
 
     var body: some View {
+        let transcriptItems = chat.transcriptItems
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if chat.visibleMessages.isEmpty {
+                if transcriptItems.isEmpty {
                     if chat.messages.isEmpty {
                         ChatEmptyTranscriptView(
                             isRunning: model.isRunning,
@@ -130,25 +131,29 @@ private struct ChatTranscriptView: View {
                         .padding(.top, 120)
                     }
                 } else {
-                    ForEach(chat.visibleMessages) { message in
-                        let editUnavailableReason = userPromptEditingUnavailableReason(for: message)
-                        ChatMessageRow(
-                            message: message,
-                            imageModelSelectionRequest: chat.imageModelSelectionRequest(
-                                for: message.id
-                            ),
-                            canEditUserMessage: editUnavailableReason == nil,
-                            editUserMessageUnavailableReason: editUnavailableReason,
-                            isEditingUserMessage: chat.promptEditContext?.messageID == message.id,
-                            onEditUserMessage: chat.beginEditingUserMessage,
-                            onConfirmToolConsent: chat.confirmToolConsent,
-                            onDenyToolConsent: chat.denyToolConsent,
-                            onSelectImageModel: chat.selectImageModel,
-                            onCancelImageModelSelection: chat.cancelImageModelSelection,
-                            onExploreImageModels: onExploreImageModels
-                        )
-                        .equatable()
-                        .id(message.id)
+                    ForEach(transcriptItems) { item in
+                        switch item {
+                        case .message(let message):
+                            let editUnavailableReason = userPromptEditingUnavailableReason(for: message)
+                            ChatMessageRow(
+                                message: message,
+                                imageModelSelectionRequest: chat.imageModelSelectionRequest(
+                                    for: message.id
+                                ),
+                                canEditUserMessage: editUnavailableReason == nil,
+                                editUserMessageUnavailableReason: editUnavailableReason,
+                                isEditingUserMessage: chat.promptEditContext?.messageID == message.id,
+                                onEditUserMessage: chat.beginEditingUserMessage,
+                                onConfirmToolConsent: chat.confirmToolConsent,
+                                onDenyToolConsent: chat.denyToolConsent,
+                                onSelectImageModel: chat.selectImageModel,
+                                onCancelImageModelSelection: chat.cancelImageModelSelection,
+                                onExploreImageModels: onExploreImageModels
+                            )
+                            .equatable()
+                        case .research(let activity):
+                            ChatResearchActivityCard(activity: activity)
+                        }
                     }
                 }
             }
@@ -414,19 +419,15 @@ final class ChatViewModel: ObservableObject {
         activeRequestSessionID != nil || !requestQueue.isEmpty
     }
 
-    var visibleMessages: [ChatTranscriptMessage] {
+    var transcriptItems: [ChatTranscriptPresentationItem] {
         let queuedMessageIDs = Set(
             requestQueue.lazy
                 .filter { $0.sessionID == self.currentSessionID }
                 .map(\.userMessageID)
         )
-        return messages.filter {
-            !queuedMessageIDs.contains($0.id)
-                && !($0.role == .assistant
-                    && $0.content.isEmpty
-                    && $0.reasoningContent.isEmpty
-                    && !$0.toolCalls.isEmpty)
-        }
+        return ChatTranscriptPresentation.items(
+            from: messages.filter { !queuedMessageIDs.contains($0.id) }
+        )
     }
 
     var currentSessionQueuedPrompts: [ChatQueuedPrompt] {
@@ -812,36 +813,7 @@ final class ChatViewModel: ObservableObject {
         guard let session = storedSessions.first(where: { $0.id == sessionID }) else {
             return nil
         }
-        var lines = [session.displayTitle, ""]
-        for message in session.messages {
-            let speaker: String
-            switch message.role {
-            case .user:
-                speaker = "You"
-            case .assistant:
-                speaker = message.modelID.map { NativFormatting.truncateModelName($0, maxLength: 60) } ?? "Assistant"
-            case .tool:
-                speaker = message.toolName == ChatImageToolRegistry.editToolName
-                    ? "Image edit"
-                    : "Image generation"
-            case .error:
-                speaker = "Error"
-            }
-            let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if content.isEmpty && message.imageAttachments.isEmpty {
-                continue
-            }
-            lines.append("\(speaker):")
-            if !message.imageAttachments.isEmpty {
-                let count = message.imageAttachments.count
-                lines.append("[\(count) attachment\(count == 1 ? "" : "s")]")
-            }
-            if !content.isEmpty {
-                lines.append(content)
-            }
-            lines.append("")
-        }
-        return lines.joined(separator: "\n")
+        return ChatConversationExporter.text(for: session)
     }
 
     func send(using appModel: NativModel, languageModelSupportsTools: Bool) {
@@ -3212,217 +3184,6 @@ private struct ChatAgentStepCell: View {
             return error
         }
         return (object["error"] as? [String: Any])?["message"] as? String
-    }
-}
-
-private struct ChatWebSourceStrip: View {
-    let sources: [ChatWebSource]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(sources) { source in
-                    Link(destination: source.url) {
-                        HStack(spacing: 6) {
-                            ChatWebFavicon(source: source, size: 16)
-                            Text(source.host)
-                                .font(.caption)
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(
-                            Color.primary.opacity(0.045),
-                            in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        )
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .stroke(Color(nsColor: .separatorColor), lineWidth: 0.5)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .help(source.label)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct ChatWebActivityDetails: View {
-    let activity: ChatWebActivity
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let query = activity.query {
-                detailValue(label: "Search", value: query)
-            }
-            if let focus = activity.focus {
-                detailValue(label: "Focus", value: focus)
-            }
-            if activity.sources.isEmpty {
-                Text("No sources returned.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Sources")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    ForEach(activity.sources) { source in
-                        sourceRow(source)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func detailValue(label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.callout)
-                .textSelection(.enabled)
-        }
-    }
-
-    private func sourceRow(_ source: ChatWebSource) -> some View {
-        Link(destination: source.url) {
-            HStack(alignment: .top, spacing: 9) {
-                ChatWebFavicon(source: source, size: 20)
-                    .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(source.label)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(source.host)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    if let snippet = source.snippet, !snippet.isEmpty {
-                        Text(snippet)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    if let error = source.error {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                            .lineLimit(2)
-                    }
-                }
-                Spacer(minLength: 8)
-                Image(systemName: "arrow.up.right")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct ChatWebFavicon: View {
-    let source: ChatWebSource
-    let size: CGFloat
-    @State private var image: NSImage?
-
-    var body: some View {
-        Group {
-            if let image {
-                Image(nsImage: image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-            } else {
-                fallback
-            }
-        }
-        .frame(width: size, height: size)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: size * 0.22))
-        .clipShape(RoundedRectangle(cornerRadius: size * 0.22))
-        .accessibilityHidden(true)
-        .task(id: source.faviconURL) {
-            guard let url = source.faviconURL else { return }
-            image = await ChatWebFaviconCache.shared.image(for: url)
-        }
-    }
-
-    private var fallback: some View {
-        Text(source.host.prefix(1).uppercased())
-            .font(.system(size: size * 0.52, weight: .semibold, design: .rounded))
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-@MainActor
-private final class ChatWebFaviconCache {
-    static let shared = ChatWebFaviconCache()
-
-    private let images = NSCache<NSURL, NSImage>()
-    private var unavailable = Set<URL>()
-    private let session: URLSession
-
-    private init() {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.httpCookieStorage = nil
-        configuration.httpShouldSetCookies = false
-        configuration.requestCachePolicy = .returnCacheDataElseLoad
-        configuration.timeoutIntervalForRequest = 5
-        configuration.urlCache = URLCache(
-            memoryCapacity: 2_000_000,
-            diskCapacity: 0
-        )
-        session = URLSession(
-            configuration: configuration,
-            delegate: ChatWebFaviconSessionDelegate(),
-            delegateQueue: nil
-        )
-    }
-
-    func image(for url: URL) async -> NSImage? {
-        if let image = images.object(forKey: url as NSURL) {
-            return image
-        }
-        guard !unavailable.contains(url) else { return nil }
-
-        var request = URLRequest(url: url)
-        request.setValue("bytes=0-262143", forHTTPHeaderField: "Range")
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let response = response as? HTTPURLResponse,
-                  (200 ..< 300).contains(response.statusCode),
-                  response.expectedContentLength <= 262_144,
-                  data.count <= 262_144,
-                  response.mimeType?.hasPrefix("image/") != false,
-                  let image = NSImage(data: data) else {
-                unavailable.insert(url)
-                return nil
-            }
-            images.setObject(image, forKey: url as NSURL)
-            return image
-        } catch {
-            unavailable.insert(url)
-            return nil
-        }
-    }
-}
-
-private final class ChatWebFaviconSessionDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(nil)
     }
 }
 

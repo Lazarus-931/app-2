@@ -94,12 +94,12 @@ final class WebBrowsingSettingsViewModel: ObservableObject {
         case .search:
             select(searchProvider)
         case .read:
-            select(
-                resolvedPageReaderProvider
-                    ?? WebSearchProvider.pageReaders.first { hasCredential(for: $0) }
-                    ?? .exa
-            )
+            select(initialPageReaderProvider)
         }
+    }
+
+    private var initialPageReaderProvider: WebSearchProvider {
+        WebSearchProvider.pageReaders.first ?? .exa
     }
 
     var availableProviders: [WebSearchProvider] {
@@ -339,7 +339,6 @@ struct WebBrowsingSettingsView: View {
                             weight: provider == viewModel.selectedProvider ? .semibold : .regular
                         ))
                     Spacer(minLength: 0)
-                    routeIndicators(for: provider)
                     connectionIndicator(for: provider)
                 }
                 .padding(.leading, 10)
@@ -365,29 +364,6 @@ struct WebBrowsingSettingsView: View {
             provider == viewModel.selectedProvider ? Color.accentColor.opacity(0.12) : .clear,
             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
         )
-    }
-
-    @ViewBuilder
-    private func routeIndicators(for provider: WebSearchProvider) -> some View {
-        switch viewModel.selectedCapability {
-        case .search:
-            if viewModel.searchProvider == provider {
-                routeBadge("Active")
-            }
-        case .read:
-            if viewModel.resolvedPageReaderProvider == provider {
-                routeBadge("Active")
-            }
-        }
-    }
-
-    private func routeBadge(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 8, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(Color.secondary.opacity(0.1), in: Capsule())
     }
 
     @ViewBuilder
@@ -426,7 +402,7 @@ struct WebBrowsingSettingsView: View {
             }
 
             HStack {
-                Button(viewModel.isTesting ? "Testing…" : "Test & connect") {
+                Button(connectionActionTitle) {
                     Task {
                         if await viewModel.testAndConnect() {
                             onConfigurationChanged(true)
@@ -505,13 +481,39 @@ struct WebBrowsingSettingsView: View {
 
     @ViewBuilder
     private var keyField: some View {
-        let prompt = "Enter \(viewModel.selectedProvider.metadata.displayName) API key"
+        let prompt = keyFieldPrompt
         if viewModel.revealsKey {
             TextField(prompt, text: $viewModel.draftAPIKey)
                 .textFieldStyle(.roundedBorder)
         } else {
             SecureField(prompt, text: $viewModel.draftAPIKey)
                 .textFieldStyle(.roundedBorder)
+        }
+    }
+
+    private var keyFieldPrompt: String {
+        let provider = viewModel.selectedProvider.metadata.displayName
+        switch viewModel.selectedConnectionState {
+        case .disconnected:
+            "Enter \(provider) API key"
+        case .connected:
+            "Enter a new key to replace the saved \(provider) key"
+        case .issue:
+            "Enter a new \(provider) API key"
+        }
+    }
+
+    private var connectionActionTitle: String {
+        if viewModel.isTesting {
+            return "Testing…"
+        }
+        switch viewModel.selectedConnectionState {
+        case .disconnected:
+            return "Test & connect"
+        case .connected:
+            return "Test & replace"
+        case .issue:
+            return "Test & reconnect"
         }
     }
 

@@ -514,6 +514,46 @@ final class ChatWebSearchToolTests: XCTestCase {
     }
 
     @MainActor
+    func testPageReaderSetupIgnoresDisconnectedPersistedRoute() throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
+        preferences.pageReaderProvider = .parallel
+
+        let viewModel = WebBrowsingSettingsViewModel(
+            initialCapability: .read,
+            preferences: preferences,
+            credentials: StubWebSearchCredentialStore(),
+            service: WebSearchService(client: StubWebSearchHTTPClient(response: #"{"results":[]}"#))
+        )
+
+        XCTAssertEqual(viewModel.selectedProvider, WebSearchProvider.pageReaders.first)
+        XCTAssertEqual(viewModel.selectedConnectionState, .disconnected)
+    }
+
+    @MainActor
+    func testPageReaderSetupStartsWithFirstProviderEvenWhenAnotherRouteIsConnected() throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
+        preferences.pageReaderProvider = .parallel
+
+        let viewModel = WebBrowsingSettingsViewModel(
+            initialCapability: .read,
+            preferences: preferences,
+            credentials: StubWebSearchCredentialStore(keys: [.parallel: "stored-key"]),
+            service: WebSearchService(client: StubWebSearchHTTPClient(response: #"{"results":[]}"#))
+        )
+
+        XCTAssertEqual(viewModel.selectedProvider, WebSearchProvider.pageReaders.first)
+        XCTAssertEqual(viewModel.selectedConnectionState, .disconnected)
+    }
+
+    @MainActor
     func testFailedReplacementDoesNotOverwriteStoredCredential() async throws {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
