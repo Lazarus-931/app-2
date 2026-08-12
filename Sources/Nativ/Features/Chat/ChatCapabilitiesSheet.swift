@@ -19,17 +19,17 @@ struct ChatCapabilitiesSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text("Add to chat")
+                Text("Directory")
                     .font(.system(size: 18, weight: .semibold))
                 Spacer()
                 NativHoverCloseButton { dismiss() }
             }
 
-            TextField("Search capabilities", text: $query)
+            TextField("Search directory", text: $query)
                 .textFieldStyle(.roundedBorder)
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(alignment: .leading, spacing: 18) {
                     if items.isEmpty {
                         Text(query.isEmpty ? "No capabilities are available." : "No matching capabilities.")
                             .font(.system(size: 12))
@@ -37,16 +37,34 @@ struct ChatCapabilitiesSheet: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 44)
                     } else {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            if index > 0 { Divider() }
-                            capabilityRow(item)
-                        }
+                        capabilitySection("MCPs", kind: .connection)
+                        capabilitySection("Skills", kind: .skill)
+                        capabilitySection("Tools", kind: .tool)
                     }
                 }
             }
         }
         .padding(20)
         .frame(width: 480, height: 520)
+    }
+
+    @ViewBuilder
+    private func capabilitySection(_ title: String, kind: ChatCapabilityKind) -> some View {
+        let sectionItems = items.filter { $0.kind == kind }
+        if !sectionItems.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                VStack(spacing: 0) {
+                    ForEach(Array(sectionItems.enumerated()), id: \.element.id) { index, item in
+                        if index > 0 { Divider() }
+                        capabilityRow(item)
+                    }
+                }
+            }
+        }
     }
 
     private func capabilityRow(_ item: ChatCapabilityItem) -> some View {

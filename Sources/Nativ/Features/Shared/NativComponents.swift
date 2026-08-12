@@ -50,7 +50,7 @@ struct NativArrowlessPopoverPresenter<Content: View>: NSViewRepresentable {
             panel.hasShadow = true
             panel.hidesOnDeactivate = true
             panel.isReleasedWhenClosed = false
-            panel.animationBehavior = .utilityWindow
+            panel.animationBehavior = .none
             panel.contentView = hostingView
             panel.onDismiss = { [weak self] in
                 guard self?.isPresented?.wrappedValue == true else { return }
@@ -99,6 +99,7 @@ struct NativArrowlessPopoverPresenter<Content: View>: NSViewRepresentable {
             let fittingSize = hostingView.fittingSize
             guard fittingSize.width > 0, fittingSize.height > 0 else { return }
 
+            let wasVisible = panel.isVisible
             panel.setContentSize(fittingSize)
             positionPanel(relativeTo: anchorView, in: parentWindow, size: fittingSize)
 
@@ -108,7 +109,13 @@ struct NativArrowlessPopoverPresenter<Content: View>: NSViewRepresentable {
                 }
                 parentWindow.addChildWindow(panel, ordered: .above)
             }
+            guard !wasVisible else { return }
+            panel.alphaValue = 0
             panel.makeKeyAndOrderFront(nil)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.12
+                panel.animator().alphaValue = 1
+            }
         }
 
         private func positionPanel(
@@ -157,7 +164,7 @@ private struct ArrowlessPopoverSurface: View {
 
     var body: some View {
         content
-            .background(.regularMaterial)
+            .background(Color(nsColor: .textBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
