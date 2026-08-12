@@ -120,6 +120,15 @@ struct ChatSessionSummary: Identifiable, Equatable {
     }
 }
 
+struct ChatActivityContext: Equatable, Codable, Sendable {
+    enum Kind: String, Equatable, Codable, Sendable {
+        case deepResearch
+    }
+
+    let id: UUID
+    let kind: Kind
+}
+
 struct ChatFolder: Identifiable, Equatable, Codable {
     let id: UUID
     var name: String
@@ -181,6 +190,7 @@ struct ChatTranscriptMessage: Identifiable, Equatable, Codable {
     var toolName: String?
     var toolStatus: ToolStatus?
     var toolArguments: String?
+    var activityContext: ChatActivityContext?
 
     init(
         id: UUID = UUID(),
@@ -198,7 +208,8 @@ struct ChatTranscriptMessage: Identifiable, Equatable, Codable {
         toolCallID: String? = nil,
         toolName: String? = nil,
         toolStatus: ToolStatus? = nil,
-        toolArguments: String? = nil
+        toolArguments: String? = nil,
+        activityContext: ChatActivityContext? = nil
     ) {
         self.id = id
         self.role = role
@@ -216,6 +227,7 @@ struct ChatTranscriptMessage: Identifiable, Equatable, Codable {
         self.toolName = toolName
         self.toolStatus = toolStatus
         self.toolArguments = toolArguments
+        self.activityContext = activityContext
     }
 
     enum CodingKeys: String, CodingKey {
@@ -235,6 +247,7 @@ struct ChatTranscriptMessage: Identifiable, Equatable, Codable {
         case toolName
         case toolStatus
         case toolArguments
+        case activityContext
     }
 
     init(from decoder: Decoder) throws {
@@ -255,6 +268,10 @@ struct ChatTranscriptMessage: Identifiable, Equatable, Codable {
         toolName = try container.decodeIfPresent(String.self, forKey: .toolName)
         toolStatus = try container.decodeIfPresent(ToolStatus.self, forKey: .toolStatus)
         toolArguments = try container.decodeIfPresent(String.self, forKey: .toolArguments)
+        activityContext = try container.decodeIfPresent(
+            ChatActivityContext.self,
+            forKey: .activityContext
+        )
 
         if role == .error,
            content == NativChatError.missingAssistantContent.localizedDescription,
@@ -282,6 +299,7 @@ struct ChatTranscriptMessage: Identifiable, Equatable, Codable {
         try container.encodeIfPresent(toolName, forKey: .toolName)
         try container.encodeIfPresent(toolStatus, forKey: .toolStatus)
         try container.encodeIfPresent(toolArguments, forKey: .toolArguments)
+        try container.encodeIfPresent(activityContext, forKey: .activityContext)
     }
 
     var apiMessage: MLXChatMessage? {

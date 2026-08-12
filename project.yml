@@ -171,6 +171,7 @@ targets:
       - path: Sources/Nativ/Features/Extensions/NativExtensionStateStore.swift
       - path: Sources/Nativ/Utilities/ShellEnvironment.swift
       - path: Sources/Nativ/Features/Chat/ChatToolRegistry.swift
+      - path: Sources/Nativ/Features/Chat/ChatResearchRun.swift
       - path: Sources/Nativ/Features/Chat/ChatCapabilitySelection.swift
       - path: Sources/Nativ/Features/Chat/ChatWebSourcePresentation.swift
       - path: Sources/Nativ/Features/Chat/Tools/ChatImageTool.swift
