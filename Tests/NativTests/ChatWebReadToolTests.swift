@@ -125,7 +125,7 @@ final class ChatWebReadToolTests: XCTestCase {
             let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
             let failure = try XCTUnwrap(root["error"] as? [String: Any])
             XCTAssertEqual(failure["code"] as? String, "page_reader_not_configured")
-            XCTAssertTrue((failure["user_action_required"] as? String)?.contains("Extensions → Browsing") == true)
+            XCTAssertTrue((failure["user_action_required"] as? String)?.contains("Extensions → Tools") == true)
         }
     }
 

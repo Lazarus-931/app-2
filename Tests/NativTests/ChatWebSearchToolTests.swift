@@ -298,7 +298,7 @@ final class ChatWebSearchToolTests: XCTestCase {
             XCTAssertEqual(payload["code"] as? String, WebBrowsingFailureCode.missingAPIKey.rawValue)
             XCTAssertEqual(
                 payload["user_action_required"] as? String,
-                "Ask the user to add a search API key in Extensions → Browsing, then retry web_search."
+                "Ask the user to configure Web Search in Extensions → Tools, then retry web_search."
             )
         }
     }

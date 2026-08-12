@@ -212,6 +212,7 @@ enum ChatCapabilityResolver {
             uniquingKeysWith: { current, _ in current }
         )
         let selectedSkillIDs = Set(capabilityIDs.compactMap(\.skillID))
+        let isDeepResearchSelected = selectedSkillIDs.contains(NativSkill.deepResearchID)
         let requiredBuiltInToolNames = selectedSkillIDs.reduce(into: Set<String>()) { result, id in
             guard let toolNames = configuredSkills[id]?.requiredBuiltInToolNames,
                   ChatToolRegistry.areConfigured(toolNames) else { return }
@@ -221,6 +222,9 @@ enum ChatCapabilityResolver {
             .union(requiredBuiltInToolNames)
 
         for descriptor in ChatToolRegistry.descriptors(canEditImage: canEditImage) {
+            if isDeepResearchSelected, descriptor.isAutomatic {
+                continue
+            }
             guard descriptor.isSelected(by: selectedBuiltInToolNames) else {
                 continue
             }
