@@ -117,7 +117,7 @@ struct WebBrowsingPreferences {
         get {
             guard let rawValue = defaults.string(forKey: searchProviderKey),
                   let provider = WebSearchProvider(rawValue: rawValue) else {
-                return .brave
+                return pageReaderProvider ?? .brave
             }
             return provider
         }

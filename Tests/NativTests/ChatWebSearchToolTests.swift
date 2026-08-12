@@ -435,6 +435,19 @@ final class ChatWebSearchToolTests: XCTestCase {
         XCTAssertEqual(preferences.provider(for: .read), .exa)
     }
 
+    func testConfiguredPageReaderBecomesSearchDefaultWhenSearchIsUnset() throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+
+        preferences.pageReaderProvider = .parallel
+
+        XCTAssertEqual(preferences.searchProvider, .parallel)
+        XCTAssertEqual(preferences.provider(for: .search), .parallel)
+        XCTAssertEqual(preferences.provider(for: .read), .parallel)
+    }
+
     func testPageReaderCanBeRoutedSeparatelyFromSearch() throws {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
