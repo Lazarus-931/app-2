@@ -242,8 +242,10 @@ struct ChatComposer: View {
             } action: { width in
                 composerWidth = width
             }
-            .popover(isPresented: $showsAddPanel, arrowEdge: .bottom) {
-                addPanel
+            .background {
+                NativArrowlessPopoverPresenter(isPresented: $showsAddPanel) {
+                    addPanel
+                }
             }
         }
         .padding(.vertical, 18)

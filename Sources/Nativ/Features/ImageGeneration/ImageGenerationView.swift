@@ -194,14 +194,16 @@ private struct ImageGenerationComposer: View {
             } action: { width in
                 composerWidth = width
             }
-            .popover(isPresented: $showsAddPanel, arrowEdge: .bottom) {
-                ChatComposerActionPanel(
-                    canPasteImage: viewModel.canPasteImage,
-                    onAttachImages: { dismissAddPanelAndPerform(viewModel.chooseImageAttachments) },
-                    onPasteImage: { dismissAddPanelAndPerform(viewModel.pasteImageFromClipboard) },
-                    onCaptureScreenshot: { dismissAddPanelAndPerform(viewModel.captureScreenshot) }
-                )
-                .frame(width: max(320, composerWidth))
+            .background {
+                NativArrowlessPopoverPresenter(isPresented: $showsAddPanel) {
+                    ChatComposerActionPanel(
+                        canPasteImage: viewModel.canPasteImage,
+                        onAttachImages: { dismissAddPanelAndPerform(viewModel.chooseImageAttachments) },
+                        onPasteImage: { dismissAddPanelAndPerform(viewModel.pasteImageFromClipboard) },
+                        onCaptureScreenshot: { dismissAddPanelAndPerform(viewModel.captureScreenshot) }
+                    )
+                    .frame(width: max(320, composerWidth))
+                }
             }
             .onDrop(
                 of: ImageGenerationDrag.supportedDropTypeIdentifiers,
