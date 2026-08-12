@@ -94,6 +94,7 @@ struct ChatComposer: View {
     @State private var didApplyInitialReasoningDefault = false
     @State private var showsKits = false
     @State private var showsCapabilities = false
+    @State private var showsBrowsingSettings = false
     @State private var isWebSearchAvailable = false
     @State private var isDeepResearchAvailable = false
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
@@ -202,8 +203,20 @@ struct ChatComposer: View {
                         onAttachImages: viewModel.chooseImageAttachments,
                         onPasteImage: viewModel.pasteImageFromClipboard,
                         onCaptureScreenshot: viewModel.captureScreenshot,
-                        onToggleWebSearch: { viewModel.toggleCapability(webSearchReference) },
-                        onToggleDeepResearch: { viewModel.toggleCapability(deepResearchReference) },
+                        onToggleWebSearch: {
+                            toggleBrowsingCapability(
+                                webSearchReference,
+                                isSelected: viewModel.isCapabilitySelected(webSearchReference),
+                                isAvailable: isWebSearchAvailable
+                            )
+                        },
+                        onToggleDeepResearch: {
+                            toggleBrowsingCapability(
+                                deepResearchReference,
+                                isSelected: viewModel.isCapabilitySelected(deepResearchReference),
+                                isAvailable: isDeepResearchAvailable
+                            )
+                        },
                         onOpenKits: { showsKits = true },
                         onOpenCapabilities: { showsCapabilities = true }
                     )
@@ -284,6 +297,9 @@ struct ChatComposer: View {
         .sheet(isPresented: $showsCapabilities) {
             ChatCapabilitiesSheet(model: model, chat: viewModel)
         }
+        .sheet(isPresented: $showsBrowsingSettings) {
+            BrowsingSettingsSheet()
+        }
     }
 
     private var modelScanKey: String {
@@ -303,6 +319,18 @@ struct ChatComposer: View {
         isDeepResearchAvailable = ChatToolRegistry.areConfigured(
             NativSkill.deepResearch.requiredBuiltInToolNames
         )
+    }
+
+    private func toggleBrowsingCapability(
+        _ reference: ChatCapabilityReference,
+        isSelected: Bool,
+        isAvailable: Bool
+    ) {
+        if isAvailable || isSelected {
+            viewModel.toggleCapability(reference)
+        } else {
+            showsBrowsingSettings = true
+        }
     }
 
     private var modelPicker: some View {
@@ -1372,7 +1400,7 @@ struct ChatComposerActionMenu: NSViewRepresentable {
             item.target = self
             item.image = menuImage(systemName, description: title)
             item.state = isSelected ? .on : .off
-            item.isEnabled = isAvailable || isSelected
+            item.isEnabled = true
             return item
         }
 

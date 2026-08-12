@@ -285,7 +285,7 @@ private enum BrowsingConfigurationStatus {
     }
 }
 
-private struct BrowsingSettingsSheet: View {
+struct BrowsingSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
