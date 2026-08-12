@@ -495,11 +495,11 @@ struct WebBrowsingSettingsView: View {
         let provider = viewModel.selectedProvider.metadata.displayName
         switch viewModel.selectedConnectionState {
         case .disconnected:
-            "Enter \(provider) API key"
+            return "Enter \(provider) API key"
         case .connected:
-            "Enter a new key to replace the saved \(provider) key"
+            return "Enter a new key to replace the saved \(provider) key"
         case .issue:
-            "Enter a new \(provider) API key"
+            return "Enter a new \(provider) API key"
         }
     }
 
