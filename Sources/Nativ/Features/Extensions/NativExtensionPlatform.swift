@@ -76,7 +76,6 @@ enum NativExtensionPackageError: LocalizedError {
 
 @MainActor
 final class NativExtensionManager: ObservableObject {
-    static let browsingID = "com.nativ.browsing"
     static let voiceDictationID = "com.nativ.voice-dictation"
     static let voiceAudioPageID = "com.nativ.voice-dictation.audio"
 

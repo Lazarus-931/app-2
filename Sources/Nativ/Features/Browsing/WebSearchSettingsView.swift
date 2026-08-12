@@ -1,6 +1,32 @@
 import AppKit
 import SwiftUI
 
+struct BrowsingSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let initialCapability: WebBrowsingCapability
+
+    init(initialCapability: WebBrowsingCapability = .search) {
+        self.initialCapability = initialCapability
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text(initialCapability == .search ? "Web Search" : "Web Read")
+                    .font(.system(size: 18, weight: .semibold))
+                Spacer()
+                NativHoverCloseButton { dismiss() }
+            }
+            WebBrowsingSettingsView(
+                initialCapability: initialCapability,
+                showsCapabilityPicker: true
+            )
+        }
+        .padding(20)
+        .frame(width: 720)
+    }
+}
+
 @MainActor
 final class WebBrowsingSettingsViewModel: ObservableObject {
     enum ConnectionState: Equatable {

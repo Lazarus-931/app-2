@@ -157,7 +157,6 @@ struct HubEmptyHint: View {
 
 private struct ExtensionsSectionView: View {
     @ObservedObject var manager: NativExtensionManager
-    @State private var showsBrowsingSettings = false
 
     var body: some View {
         HubSectionScaffold(
@@ -174,13 +173,7 @@ private struct ExtensionsSectionView: View {
             } else {
                 VStack(spacing: 12) {
                     ForEach(manager.records) { record in
-                        if record.id == NativExtensionManager.browsingID {
-                            BrowsingExtensionRow(record: record) {
-                                showsBrowsingSettings = true
-                            }
-                        } else {
-                            ExtensionRow(record: record, manager: manager)
-                        }
+                        ExtensionRow(record: record, manager: manager)
                     }
                 }
             }
@@ -188,126 +181,6 @@ private struct ExtensionsSectionView: View {
         .onAppear {
             manager.refreshPermissionStatuses()
         }
-        .sheet(isPresented: $showsBrowsingSettings) {
-            BrowsingSettingsSheet()
-        }
-    }
-}
-
-private struct BrowsingExtensionRow: View {
-    let record: NativExtensionRecord
-    let onConfigure: () -> Void
-    @State private var configurationRevision = 0
-
-    var body: some View {
-        let status = configurationStatus
-        HStack(alignment: .center, spacing: 12) {
-            NativTintedIconTile(symbol: record.manifest.systemImage, size: 44)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(record.manifest.displayName)
-                        .font(.system(size: 14, weight: .semibold))
-                    Text("INCLUDED")
-                        .font(.system(size: 10, weight: .semibold))
-                        .tracking(0.4)
-                        .foregroundStyle(Color.accentColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.accentColor.opacity(0.12), in: Capsule())
-                }
-                Text(record.manifest.summary)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Text(status.text)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(status.color)
-            }
-            Spacer(minLength: 12)
-            Button("Configure", action: onConfigure)
-                .buttonStyle(.bordered)
-        }
-        .padding(16)
-        .background(
-            Color.primary.opacity(0.03),
-            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .webBrowsingConfigurationDidChange)) { _ in
-            configurationRevision &+= 1
-        }
-    }
-
-    private var configurationStatus: BrowsingConfigurationStatus {
-        _ = configurationRevision
-        let preferences = WebBrowsingPreferences()
-        let routedProviders = [
-            preferences.provider(for: .search),
-            preferences.provider(for: .read),
-        ].compactMap { $0 }
-        if routedProviders.contains(where: { preferences.credentialIssue(for: $0) != nil }) {
-            return .needsAttention
-        }
-        let runtime = WebBrowsingRuntime()
-        if runtime.isConfigured(.search), runtime.isConfigured(.read) {
-            return .ready
-        }
-        if runtime.isConfigured(.search) {
-            return .searchOnly
-        }
-        return .setupRequired
-    }
-}
-
-private enum BrowsingConfigurationStatus {
-    case ready
-    case searchOnly
-    case needsAttention
-    case setupRequired
-
-    var text: String {
-        switch self {
-        case .ready: "Ready for search and research"
-        case .searchOnly: "Search ready · Add a page reader for deep research"
-        case .needsAttention: "Provider needs attention"
-        case .setupRequired: "Setup required"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .ready, .searchOnly: .green
-        case .needsAttention: .orange
-        case .setupRequired: .secondary
-        }
-    }
-}
-
-struct BrowsingSettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    let initialCapability: WebBrowsingCapability
-
-    init(initialCapability: WebBrowsingCapability = .search) {
-        self.initialCapability = initialCapability
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Browsing")
-                    .font(.system(size: 18, weight: .semibold))
-                Spacer()
-                NativHoverCloseButton { dismiss() }
-            }
-            WebBrowsingSettingsView(
-                initialCapability: initialCapability,
-                showsCapabilityPicker: true
-            )
-        }
-        .padding(20)
-        .frame(width: 720)
     }
 }
 

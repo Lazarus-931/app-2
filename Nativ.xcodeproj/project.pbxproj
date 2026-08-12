@@ -37,7 +37,6 @@
 		1A82A76742BFEEBE881659BD /* TavilyBrowsingProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C90AC464C5C04FB14A3C789 /* TavilyBrowsingProvider.swift */; };
 		1C6295D830FE941FDCE3ECCC /* CodexCLIProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F5BF52CED5DE873DD6BF02B /* CodexCLIProfile.swift */; };
 		1CD847CE1BC2696D9306656D /* ChatSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 530D284E65297E3CA8050AE1 /* ChatSessionStore.swift */; };
-		1D0C239C5626E23519EA027E /* BrowsingExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 459A03B08BA1B5C177A1BE10 /* BrowsingExtension.swift */; };
 		1D180BB7A755E347CC7523A1 /* ChatWebSourcePresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E326340CDFE24437A4DE710E /* ChatWebSourcePresentation.swift */; };
 		1DCBC70AA972310D3FBC22CC /* ChatSwitchModelTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5BBBE5DAD60FA5D2450B2CD /* ChatSwitchModelTool.swift */; };
 		1EBCB9482DABA02FD039A795 /* Routine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06F067B3DB861CF232820136 /* Routine.swift */; };
@@ -369,7 +368,6 @@
 		41417C210BF817681A8C6D87 /* IntegrationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsView.swift; sourceTree = "<group>"; };
 		4157CCE5D9CD6B779FF7FFCE /* DeveloperView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeveloperView.swift; sourceTree = "<group>"; };
 		42F2A46C219AE81DB14EEF3A /* Signing.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Signing.xcconfig; sourceTree = "<group>"; };
-		459A03B08BA1B5C177A1BE10 /* BrowsingExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowsingExtension.swift; sourceTree = "<group>"; };
 		46B469F1D62E2DB0DE8CFAF1 /* NativPermissionsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativPermissionsCard.swift; sourceTree = "<group>"; };
 		46BCF5F68C499E27A789A91F /* ArtifactSemanticSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSemanticSearch.swift; sourceTree = "<group>"; };
 		49B4556627CCB5BD1D3DE5F8 /* VoiceDictationExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceDictationExtension.swift; sourceTree = "<group>"; };
@@ -892,7 +890,6 @@
 		D4E162E7B624C8A42FCF6A30 /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
-				459A03B08BA1B5C177A1BE10 /* BrowsingExtension.swift */,
 				C6D53CFF2D565C0BFE3DE65E /* CustomTool.swift */,
 				7D5BCE1A4769FE7823B5C79D /* ExtensionsHubView.swift */,
 				3B1B970F41F1B5612B791ABE /* KitsSectionView.swift */,
@@ -1278,7 +1275,6 @@
 				63D4D3774994EAE5F5ABB7E9 /* AudioInputVolumeController.swift in Sources */,
 				ADDF36ABE66D5ACE3D765589 /* AudioView.swift in Sources */,
 				184CEAB6FBA72EB5BF2A319D /* BraveBrowsingProvider.swift in Sources */,
-				1D0C239C5626E23519EA027E /* BrowsingExtension.swift in Sources */,
 				2043243F627AFA7A2239BB8E /* ChatCapabilitiesSheet.swift in Sources */,
 				CB68920715F086C9FEB4EA25 /* ChatCapability.swift in Sources */,
 				8DC6B1183CB066926A138E22 /* ChatCapabilitySelection.swift in Sources */,
