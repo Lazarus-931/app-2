@@ -124,6 +124,7 @@ private struct ChatTranscriptView: View {
                         ChatEmptyTranscriptView(
                             isRunning: model.isRunning,
                             selectedModelID: selectedModelID,
+                            isModelLoading: model.isModelLoading,
                             modelLoadingProgress: model.isModelLoading ? model.modelLoadingProgress : nil
                         )
                         .frame(maxWidth: .infinity)
@@ -3540,21 +3541,21 @@ private extension Color {
 private struct ChatEmptyTranscriptView: View {
     let isRunning: Bool
     let selectedModelID: String?
+    let isModelLoading: Bool
     let modelLoadingProgress: Double?
 
     var body: some View {
         VStack(spacing: 16) {
-            Image("NativMark")
-                .resizable()
-                .renderingMode(.template)
-                .scaledToFit()
-                .frame(width: 64)
-                .foregroundStyle(Color.nativMark)
-
-            if let modelLoadingProgress {
-                ProgressView(value: modelLoadingProgress)
-                    .progressViewStyle(.linear)
-                    .frame(width: 180)
+            if isModelLoading {
+                NativProgressMark(progress: modelLoadingProgress)
+                    .padding(.vertical, 6)
+            } else {
+                Image("NativMark")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .frame(width: 64)
+                    .foregroundStyle(Color.nativMark)
             }
 
             VStack(spacing: 7) {
@@ -3568,7 +3569,7 @@ private struct ChatEmptyTranscriptView: View {
     }
 
     private var title: String {
-        if modelLoadingProgress != nil {
+        if isModelLoading {
             return "Loading model"
         }
         if !isRunning {
@@ -3581,9 +3582,12 @@ private struct ChatEmptyTranscriptView: View {
     }
 
     private var detail: String {
-        if let modelLoadingProgress {
+        if isModelLoading, let modelLoadingProgress {
             let percentage = Int((modelLoadingProgress * 100).rounded())
-            return "\(selectedModelID ?? "Model") · \(percentage)%"
+            return "\(selectedModelDisplayName) · \(percentage)%"
+        }
+        if isModelLoading {
+            return "\(selectedModelDisplayName) · Preparing…"
         }
         if !isRunning {
             return "Start the server to chat."
@@ -3592,6 +3596,10 @@ private struct ChatEmptyTranscriptView: View {
             return "Choose a model in Models."
         }
         return selectedModelID ?? ""
+    }
+
+    private var selectedModelDisplayName: String {
+        selectedModelID?.split(separator: "/").last.map(String.init) ?? "Model"
     }
 }
 
