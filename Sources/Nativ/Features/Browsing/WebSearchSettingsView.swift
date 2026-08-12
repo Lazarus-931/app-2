@@ -15,25 +15,29 @@ final class WebSearchSettingsViewModel: ObservableObject {
     }
 
     @Published var selectedProvider: WebSearchProvider
+    @Published private(set) var searchProvider: WebSearchProvider
+    @Published private(set) var pageReaderProvider: WebSearchProvider?
     @Published var draftAPIKey = ""
     @Published var revealsKey = false
     @Published private(set) var isTesting = false
     @Published private(set) var status: Status?
     @Published private(set) var connectionStates: [WebSearchProvider: ConnectionState] = [:]
 
-    private let preferences: WebSearchPreferences
+    private let preferences: WebBrowsingPreferences
     private let credentials: any WebSearchCredentialStoring
     private let service: WebSearchService
 
     init(
-        preferences: WebSearchPreferences = WebSearchPreferences(),
+        preferences: WebBrowsingPreferences = WebBrowsingPreferences(),
         credentials: any WebSearchCredentialStoring = KeychainWebSearchCredentialStore(),
         service: WebSearchService = WebSearchService()
     ) {
         self.preferences = preferences
         self.credentials = credentials
         self.service = service
-        selectedProvider = preferences.activeProvider
+        selectedProvider = preferences.searchProvider
+        searchProvider = preferences.searchProvider
+        pageReaderProvider = preferences.pageReaderProvider
         loadConnectionStates()
     }
 
@@ -51,8 +55,21 @@ final class WebSearchSettingsViewModel: ObservableObject {
         draftAPIKey = ""
         revealsKey = false
         status = nil
-        if connectionStates[provider] == .connected {
-            preferences.activeProvider = provider
+    }
+
+    func setSearchProvider(_ provider: WebSearchProvider) {
+        guard !isTesting else { return }
+        searchProvider = provider
+        preferences.searchProvider = provider
+        select(provider)
+    }
+
+    func setPageReaderProvider(_ provider: WebSearchProvider?) {
+        guard !isTesting, provider?.supports(.read) != false else { return }
+        pageReaderProvider = provider
+        preferences.pageReaderProvider = provider
+        if let provider {
+            select(provider)
         }
     }
 
@@ -60,6 +77,10 @@ final class WebSearchSettingsViewModel: ObservableObject {
         let apiKey = draftAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !apiKey.isEmpty, !isTesting else { return false }
         let provider = selectedProvider
+        let hadConfiguredSearch = hasCredential(for: searchProvider)
+        let hadConfiguredReader = resolvedPageReaderProvider.map {
+            hasCredential(for: $0)
+        } ?? false
         isTesting = true
         status = nil
 
@@ -67,9 +88,18 @@ final class WebSearchSettingsViewModel: ObservableObject {
         do {
             try await service.validateCredential(provider: provider, apiKey: apiKey)
             try credentials.save(apiKey, for: provider)
-            preferences.activeProvider = provider
             preferences.setCredentialIssue(nil, for: provider)
             connectionStates[provider] = .connected
+            if !hadConfiguredSearch {
+                searchProvider = provider
+                preferences.searchProvider = provider
+            }
+            if !hadConfiguredReader,
+               resolvedPageReaderProvider == nil,
+               provider.supports(.read) {
+                pageReaderProvider = provider
+                preferences.pageReaderProvider = provider
+            }
             if selectedProvider == provider {
                 draftAPIKey = ""
                 revealsKey = false
@@ -81,6 +111,24 @@ final class WebSearchSettingsViewModel: ObservableObject {
                 status = .failure(error.localizedDescription)
             }
             return false
+        }
+    }
+
+    var resolvedPageReaderProvider: WebSearchProvider? {
+        preferences.provider(for: .read)
+    }
+
+    var pageReaderStatus: String? {
+        guard let provider = resolvedPageReaderProvider else {
+            return "\(searchProvider.metadata.displayName) cannot read pages. Choose a page reader."
+        }
+        switch connectionStates[provider] ?? .disconnected {
+        case .connected:
+            return nil
+        case .disconnected:
+            return "Connect \(provider.metadata.displayName) to enable page reading."
+        case .issue:
+            return "\(provider.metadata.displayName) needs attention before it can read pages."
         }
     }
 
@@ -120,6 +168,15 @@ final class WebSearchSettingsViewModel: ObservableObject {
             }
         }
     }
+
+    private func hasCredential(for provider: WebSearchProvider) -> Bool {
+        switch connectionStates[provider] ?? .disconnected {
+        case .connected, .issue:
+            true
+        case .disconnected:
+            false
+        }
+    }
 }
 
 @MainActor
@@ -143,11 +200,71 @@ struct WebSearchSettingsView: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            providerPicker
-                .frame(width: 250)
-            keySetup
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(spacing: 16) {
+            providerRouting
+            HStack(alignment: .top, spacing: 16) {
+                providerPicker
+                    .frame(width: 250)
+                keySetup
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var providerRouting: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            routeRow("Search provider", selection: Binding(
+                get: { viewModel.searchProvider },
+                set: { viewModel.setSearchProvider($0) }
+            ))
+
+            HStack(spacing: 12) {
+                Text("Page reader")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(width: 100, alignment: .leading)
+                Picker("", selection: Binding(
+                    get: { viewModel.pageReaderProvider },
+                    set: { viewModel.setPageReaderProvider($0) }
+                )) {
+                    Text("Same as search")
+                        .tag(nil as WebSearchProvider?)
+                    ForEach(WebSearchProvider.pageReaders) { provider in
+                        Text(provider.metadata.displayName)
+                            .tag(provider as WebSearchProvider?)
+                    }
+                }
+                .labelsHidden()
+                .disabled(viewModel.isTesting)
+                Spacer(minLength: 0)
+            }
+
+            if let status = viewModel.pageReaderStatus {
+                Label(status, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(12)
+        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func routeRow(
+        _ title: String,
+        selection: Binding<WebSearchProvider>
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 100, alignment: .leading)
+            Picker("", selection: selection) {
+                ForEach(WebSearchProvider.allCases) { provider in
+                    Text(provider.metadata.displayName)
+                        .tag(provider)
+                }
+            }
+            .labelsHidden()
+            .disabled(viewModel.isTesting)
+            Spacer(minLength: 0)
         }
     }
 
@@ -263,7 +380,7 @@ struct WebSearchSettingsView: View {
 
             statusView
 
-            Text("Search queries are sent to the selected third-party provider. API keys stay in macOS Keychain.")
+            Text("Browsing requests are sent to the selected third-party providers. API keys stay in macOS Keychain.")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

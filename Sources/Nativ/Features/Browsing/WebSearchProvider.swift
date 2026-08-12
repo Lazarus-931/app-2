@@ -14,6 +14,10 @@ enum WebSearchProvider: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
+    static var pageReaders: [Self] {
+        allCases.filter { $0.supports(.read) }
+    }
+
     func supports(_ capability: WebBrowsingCapability) -> Bool {
         switch capability {
         case .search:
@@ -76,25 +80,54 @@ enum WebSearchCredentialIssue: String, Sendable {
     case planAccess = "plan_access"
 }
 
-struct WebSearchPreferences {
+struct WebBrowsingPreferences {
     private let defaults: UserDefaults
-    private let activeProviderKey = "nativ.web-search.active-provider.v1"
+    private let searchProviderKey = "nativ.web-search.active-provider.v1"
+    private let pageReaderProviderKey = "nativ.web-browsing.page-reader-provider.v1"
     private let credentialIssueKeyPrefix = "nativ.web-search.credential-issue.v1."
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
-    var activeProvider: WebSearchProvider {
+    var searchProvider: WebSearchProvider {
         get {
-            guard let rawValue = defaults.string(forKey: activeProviderKey),
+            guard let rawValue = defaults.string(forKey: searchProviderKey),
                   let provider = WebSearchProvider(rawValue: rawValue) else {
                 return .brave
             }
             return provider
         }
         nonmutating set {
-            defaults.set(newValue.rawValue, forKey: activeProviderKey)
+            defaults.set(newValue.rawValue, forKey: searchProviderKey)
+        }
+    }
+
+    var pageReaderProvider: WebSearchProvider? {
+        get {
+            guard let rawValue = defaults.string(forKey: pageReaderProviderKey),
+                  let provider = WebSearchProvider(rawValue: rawValue),
+                  provider.supports(.read) else {
+                return nil
+            }
+            return provider
+        }
+        nonmutating set {
+            guard let newValue else {
+                defaults.removeObject(forKey: pageReaderProviderKey)
+                return
+            }
+            guard newValue.supports(.read) else { return }
+            defaults.set(newValue.rawValue, forKey: pageReaderProviderKey)
+        }
+    }
+
+    func provider(for capability: WebBrowsingCapability) -> WebSearchProvider? {
+        switch capability {
+        case .search:
+            searchProvider
+        case .read:
+            pageReaderProvider ?? (searchProvider.supports(.read) ? searchProvider : nil)
         }
     }
 

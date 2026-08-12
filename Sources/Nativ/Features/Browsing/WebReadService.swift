@@ -401,6 +401,7 @@ private struct FirecrawlReadMetadata: Decodable {
 enum WebReadError: LocalizedError {
     case invalidArguments
     case invalidURL
+    case pageReaderNotConfigured(WebSearchProvider)
     case unsupportedProvider(WebSearchProvider)
     case pageUnavailable(WebSearchProvider)
     case unexpectedFailure
@@ -409,6 +410,7 @@ enum WebReadError: LocalizedError {
         switch self {
         case .invalidArguments: "invalid_arguments"
         case .invalidURL: "invalid_url"
+        case .pageReaderNotConfigured: "page_reader_not_configured"
         case .unsupportedProvider: "unsupported_provider"
         case .pageUnavailable: "page_unavailable"
         case .unexpectedFailure: "unexpected_failure"
@@ -421,6 +423,8 @@ enum WebReadError: LocalizedError {
             "web_read needs one to four unique URLs."
         case .invalidURL:
             "web_read accepts only public HTTP or HTTPS URLs without embedded credentials."
+        case .pageReaderNotConfigured(let searchProvider):
+            "\(searchProvider.metadata.displayName) supports web search but not page reading."
         case .unsupportedProvider(let provider):
             "\(provider.metadata.displayName) does not support reading arbitrary URLs."
         case .pageUnavailable(let provider):

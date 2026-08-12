@@ -31,6 +31,18 @@ private actor StubWebReadHTTPClient: WebBrowsingHTTPClient {
     }
 }
 
+private final class StubWebReadCredentialStore: WebSearchCredentialStoring {
+    private let keys: [WebSearchProvider: String]
+
+    init(keys: [WebSearchProvider: String]) {
+        self.keys = keys
+    }
+
+    func load(for provider: WebSearchProvider) throws -> String? { keys[provider] }
+    func save(_ key: String, for provider: WebSearchProvider) throws {}
+    func remove(for provider: WebSearchProvider) throws {}
+}
+
 final class ChatWebReadToolTests: XCTestCase {
     func testProviderReadCapabilitiesAreExplicit() {
         XCTAssertFalse(WebSearchProvider.brave.supports(.read))
@@ -38,6 +50,49 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertTrue(WebSearchProvider.nimble.supports(.read))
         XCTAssertTrue(WebSearchProvider.firecrawl.supports(.read))
         XCTAssertFalse(WebSearchProvider.perplexity.supports(.read))
+    }
+
+    func testSearchOnlyProviderKeepsReadToolAvailableForActionableFailure() throws {
+        let suiteName = "ChatWebReadToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
+
+        XCTAssertTrue(ChatWebReadToolRegistry.isConfigured(
+            credentials: StubWebReadCredentialStore(keys: [.brave: "key"]),
+            preferences: preferences
+        ))
+    }
+
+    func testMissingPageReaderReturnsActionableFailure() async throws {
+        let suiteName = "ChatWebReadToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
+        let executor = ChatWebReadToolExecutor(
+            credentials: StubWebReadCredentialStore(keys: [.brave: "key"]),
+            preferences: preferences,
+            service: WebReadService(client: StubWebReadHTTPClient(response: "{}"))
+        )
+
+        do {
+            _ = try await executor.execute(call: MLXChatToolCall(
+                id: "read",
+                function: MLXChatFunctionCall(
+                    name: ChatWebReadToolRegistry.toolName,
+                    arguments: #"{"urls":["https://example.com"]}"#
+                )
+            ))
+            XCTFail("Expected page-reader routing to be required")
+        } catch {
+            let data = try XCTUnwrap(executor.failurePayload(error: error).data(using: .utf8))
+            let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let failure = try XCTUnwrap(root["error"] as? [String: Any])
+            XCTAssertEqual(failure["code"] as? String, "page_reader_not_configured")
+            XCTAssertTrue((failure["user_action_required"] as? String)?.contains("Extensions → Browsing") == true)
+        }
     }
 
     func testExaReadsURLsInOneBoundedBatch() async throws {

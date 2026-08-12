@@ -268,7 +268,7 @@ private struct WebSearchToolConfigurationView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(toolName)
                         .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                    Text("Choose the provider Nativ uses when a model searches the web.")
+                    Text("Choose providers for web search and page reading.")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }

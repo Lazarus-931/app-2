@@ -205,8 +205,8 @@ final class ChatWebSearchToolTests: XCTestCase {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let preferences = WebSearchPreferences(defaults: defaults)
-        preferences.activeProvider = .exa
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .exa
         let executor = ChatWebSearchToolExecutor(
             credentials: StubWebSearchCredentialStore(),
             preferences: preferences,
@@ -292,8 +292,8 @@ final class ChatWebSearchToolTests: XCTestCase {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let preferences = WebSearchPreferences(defaults: defaults)
-        preferences.activeProvider = .exa
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .exa
         let credentials = StubWebSearchCredentialStore(keys: [.exa: "stored-secret"])
 
         let viewModel = WebSearchSettingsViewModel(
@@ -308,11 +308,11 @@ final class ChatWebSearchToolTests: XCTestCase {
     }
 
     @MainActor
-    func testSelectingAConnectedProviderMakesItActive() throws {
+    func testSelectingACredentialDoesNotChangeProviderRouting() throws {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let preferences = WebSearchPreferences(defaults: defaults)
+        let preferences = WebBrowsingPreferences(defaults: defaults)
         let credentials = StubWebSearchCredentialStore(keys: [.nimble: "stored-key"])
         let viewModel = WebSearchSettingsViewModel(
             preferences: preferences,
@@ -322,8 +322,36 @@ final class ChatWebSearchToolTests: XCTestCase {
 
         viewModel.select(.nimble)
 
-        XCTAssertEqual(preferences.activeProvider, .nimble)
+        XCTAssertEqual(preferences.searchProvider, .brave)
         XCTAssertTrue(viewModel.draftAPIKey.isEmpty)
+    }
+
+    func testPageReaderDefaultsToSearchProviderWhenSupported() throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+
+        preferences.searchProvider = .exa
+
+        XCTAssertNil(preferences.pageReaderProvider)
+        XCTAssertEqual(preferences.provider(for: .search), .exa)
+        XCTAssertEqual(preferences.provider(for: .read), .exa)
+    }
+
+    func testPageReaderCanBeRoutedSeparatelyFromSearch() throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+
+        preferences.searchProvider = .brave
+        XCTAssertNil(preferences.provider(for: .read))
+
+        preferences.pageReaderProvider = .firecrawl
+
+        XCTAssertEqual(preferences.provider(for: .search), .brave)
+        XCTAssertEqual(preferences.provider(for: .read), .firecrawl)
     }
 
     @MainActor
@@ -331,7 +359,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let preferences = WebSearchPreferences(defaults: defaults)
+        let preferences = WebBrowsingPreferences(defaults: defaults)
         let credentials = StubWebSearchCredentialStore()
         let client = StubWebSearchHTTPClient(response: #"{"results":[]}"#)
         let viewModel = WebSearchSettingsViewModel(
@@ -345,9 +373,32 @@ final class ChatWebSearchToolTests: XCTestCase {
         await viewModel.testAndConnect()
 
         XCTAssertEqual(credentials.storedKey(for: .exa), "new-key")
-        XCTAssertEqual(preferences.activeProvider, .exa)
+        XCTAssertEqual(preferences.searchProvider, .exa)
         XCTAssertEqual(viewModel.selectedConnectionState, .connected)
         XCTAssertTrue(viewModel.draftAPIKey.isEmpty)
+    }
+
+    @MainActor
+    func testConnectingAReaderDoesNotReplaceConfiguredSearchProvider() async throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
+        let credentials = StubWebSearchCredentialStore(keys: [.brave: "brave-key"])
+        let viewModel = WebSearchSettingsViewModel(
+            preferences: preferences,
+            credentials: credentials,
+            service: WebSearchService(client: StubWebSearchHTTPClient(response: #"{"results":[]}"#))
+        )
+        viewModel.select(.exa)
+        viewModel.draftAPIKey = "exa-key"
+
+        await viewModel.testAndConnect()
+
+        XCTAssertEqual(preferences.searchProvider, .brave)
+        XCTAssertEqual(preferences.pageReaderProvider, .exa)
+        XCTAssertEqual(preferences.provider(for: .read), .exa)
     }
 
     @MainActor
@@ -355,8 +406,8 @@ final class ChatWebSearchToolTests: XCTestCase {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let preferences = WebSearchPreferences(defaults: defaults)
-        preferences.activeProvider = .brave
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        preferences.searchProvider = .brave
         let credentials = StubWebSearchCredentialStore(keys: [.brave: "working-key"])
         let client = StubWebSearchHTTPClient(response: "{}", statusCode: 401)
         let viewModel = WebSearchSettingsViewModel(

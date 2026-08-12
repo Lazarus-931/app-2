@@ -6,9 +6,9 @@ enum ChatWebSearchToolRegistry {
 
     static func isConfigured(
         credentials: any WebSearchCredentialStoring = KeychainWebSearchCredentialStore(),
-        preferences: WebSearchPreferences = WebSearchPreferences()
+        preferences: WebBrowsingPreferences = WebBrowsingPreferences()
     ) -> Bool {
-        (try? credentials.load(for: preferences.activeProvider)) != nil
+        (try? credentials.load(for: preferences.searchProvider)) != nil
     }
 
     static let definition: MLXChatToolDefinition = {
@@ -37,12 +37,12 @@ enum ChatWebSearchToolRegistry {
 
 struct ChatWebSearchToolExecutor {
     private let credentials: any WebSearchCredentialStoring
-    private let preferences: WebSearchPreferences
+    private let preferences: WebBrowsingPreferences
     private let service: WebSearchService
 
     init(
         credentials: any WebSearchCredentialStoring = KeychainWebSearchCredentialStore(),
-        preferences: WebSearchPreferences = WebSearchPreferences(),
+        preferences: WebBrowsingPreferences = WebBrowsingPreferences(),
         service: WebSearchService = WebSearchService()
     ) {
         self.credentials = credentials
@@ -59,7 +59,7 @@ struct ChatWebSearchToolExecutor {
             throw WebBrowsingError.invalidArguments
         }
 
-        let provider = preferences.activeProvider
+        let provider = preferences.searchProvider
         let apiKey: String
         do {
             guard let storedKey = try credentials.load(for: provider) else {
