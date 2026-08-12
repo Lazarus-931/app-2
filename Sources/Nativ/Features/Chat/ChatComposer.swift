@@ -80,6 +80,44 @@ private enum ChatReasoningLevel: String, CaseIterable, Identifiable {
 
 }
 
+private struct ChatBrowsingAvailability: Sendable {
+    let isSearchAvailable: Bool
+    let isDeepResearchAvailable: Bool
+    let searchProviderLabel: String?
+    let deepResearchProviderLabel: String?
+
+    static func load() -> Self {
+        let isSearchAvailable = ChatWebSearchToolRegistry.isConfigured()
+        let isDeepResearchAvailable = ChatToolRegistry.areConfigured(
+            NativSkill.deepResearch.requiredBuiltInToolNames
+        )
+        let preferences = WebBrowsingPreferences()
+        let searchProvider = preferences.searchProvider
+        let readerProvider = preferences.provider(for: .read)
+
+        return Self(
+            isSearchAvailable: isSearchAvailable,
+            isDeepResearchAvailable: isDeepResearchAvailable,
+            searchProviderLabel: isSearchAvailable
+                ? searchProvider.metadata.displayName
+                : nil,
+            deepResearchProviderLabel: isDeepResearchAvailable
+                ? providerLabel(search: searchProvider, reader: readerProvider)
+                : nil
+        )
+    }
+
+    private static func providerLabel(
+        search: WebSearchProvider,
+        reader: WebSearchProvider?
+    ) -> String? {
+        guard let reader else { return nil }
+        return search == reader
+            ? search.metadata.displayName
+            : "\(search.metadata.displayName) + \(reader.metadata.displayName)"
+    }
+}
+
 struct ChatComposer: View {
     @ObservedObject var model: NativModel
     @ObservedObject var viewModel: ChatViewModel
@@ -102,6 +140,7 @@ struct ChatComposer: View {
     @State private var isDeepResearchAvailable = false
     @State private var webSearchProviderLabel: String?
     @State private var deepResearchProviderLabel: String?
+    @State private var browsingConfigurationRevision = 0
     @State private var composerWidth: CGFloat = 410
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
     private let editorMinimumHeight: CGFloat = 64
@@ -281,12 +320,11 @@ struct ChatComposer: View {
         .task(id: modelScanKey) {
             localLibrary.scan(searchPaths: model.settings.localModelSearchPaths)
         }
-        .onAppear {
-            refreshBrowsingAvailability()
+        .task(id: browsingConfigurationRevision) {
+            await refreshBrowsingAvailability()
         }
         .onReceive(NotificationCenter.default.publisher(for: .webBrowsingConfigurationDidChange)) { _ in
-            refreshBrowsingAvailability()
-            enablePendingBrowsingCapabilityIfReady()
+            browsingConfigurationRevision &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .localModelLibraryDidChange)) { _ in
             localLibrary.scan(searchPaths: model.settings.localModelSearchPaths)
@@ -383,24 +421,17 @@ struct ChatComposer: View {
             || viewModel.isCapabilitySelected(deepResearchReference)
     }
 
-    private func refreshBrowsingAvailability() {
-        isWebSearchAvailable = ChatWebSearchToolRegistry.isConfigured()
-        isDeepResearchAvailable = ChatToolRegistry.areConfigured(
-            NativSkill.deepResearch.requiredBuiltInToolNames
-        )
-        let preferences = WebBrowsingPreferences()
-        webSearchProviderLabel = isWebSearchAvailable
-            ? preferences.searchProvider.metadata.displayName
-            : nil
-        if isDeepResearchAvailable,
-           let reader = preferences.provider(for: .read) {
-            let search = preferences.searchProvider
-            deepResearchProviderLabel = search == reader
-                ? search.metadata.displayName
-                : "\(search.metadata.displayName) + \(reader.metadata.displayName)"
-        } else {
-            deepResearchProviderLabel = nil
-        }
+    private func refreshBrowsingAvailability() async {
+        let availability = await Task.detached(priority: .userInitiated) {
+            ChatBrowsingAvailability.load()
+        }.value
+        guard !Task.isCancelled else { return }
+
+        isWebSearchAvailable = availability.isSearchAvailable
+        isDeepResearchAvailable = availability.isDeepResearchAvailable
+        webSearchProviderLabel = availability.searchProviderLabel
+        deepResearchProviderLabel = availability.deepResearchProviderLabel
+        enablePendingBrowsingCapabilityIfReady()
     }
 
     private func toggleBrowsingCapability(
@@ -436,9 +467,9 @@ struct ChatComposer: View {
     private func browsingCapabilityIsAvailable(_ capability: WebBrowsingCapability) -> Bool {
         switch capability {
         case .search:
-            ChatWebSearchToolRegistry.isConfigured()
+            isWebSearchAvailable
         case .read:
-            ChatToolRegistry.areConfigured(NativSkill.deepResearch.requiredBuiltInToolNames)
+            isDeepResearchAvailable
         }
     }
 
@@ -1539,22 +1570,23 @@ private struct ChatComposerCapabilityChip: View {
                 Image(systemName: systemName)
                 Text(title)
 
-                if isHovering {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .semibold))
-                        .transition(.opacity)
-                }
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 9)
+                    .opacity(isHovering ? 1 : 0)
             }
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 2)
-            .frame(height: 24)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(Color.accentColor, in: Capsule())
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .help("Remove \(title) from this chat")
         .accessibilityLabel("Remove \(title) from this chat")
+        .accessibilityAddTraits(.isSelected)
         .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 }

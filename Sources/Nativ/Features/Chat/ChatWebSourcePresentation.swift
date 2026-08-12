@@ -29,7 +29,7 @@ struct ChatWebSource: Identifiable, Hashable {
     }
 }
 
-struct ChatWebActivity {
+struct ChatWebActivity: Equatable {
     let query: String?
     let focus: String?
     let sources: [ChatWebSource]
