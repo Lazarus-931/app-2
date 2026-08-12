@@ -313,6 +313,7 @@ final class ChatViewModel: ObservableObject {
         let assistantMessageID: UUID
         let settings: NativSettings
         let capabilitySelection: ChatCapabilitySelection
+        let activityContext: ChatActivityContext?
         let imageGenerationModelID: String?
         let languageModelSupportsTools: Bool
     }
@@ -912,13 +913,18 @@ final class ChatViewModel: ObservableObject {
             appModel.clearModelLoadFailure(for: modelID)
         }
         self.appModel = appModel
+        let requestID = UUID()
+        let activityContext = capabilitySelection.effectiveCapabilityIDs.contains(
+            .skill(NativSkill.deepResearchID)
+        ) ? ChatActivityContext(id: requestID, kind: .deepResearch) : nil
         requestQueue.append(QueuedChatRequest(
-            id: UUID(),
+            id: requestID,
             sessionID: sessionID,
             userMessageID: userMessageID,
             assistantMessageID: UUID(),
             settings: settings,
             capabilitySelection: capabilitySelection,
+            activityContext: activityContext,
             imageGenerationModelID: imageGenerationModelID(for: sessionID)
                 ?? settings.imageGenerationModelID,
             languageModelSupportsTools: languageModelSupportsTools
@@ -1274,6 +1280,10 @@ final class ChatViewModel: ObservableObject {
         var assistantMessageID = queuedRequest.assistantMessageID
         var advertisesTools = true
         var toolLoopGuard = ChatToolLoopGuard()
+        var researchController = queuedRequest.activityContext?.kind == .deepResearch
+            ? ChatResearchRunController()
+            : nil
+        var researchFinalization: ChatResearchFinalizationState?
         var activeSettings = queuedRequest.settings
         var activeImageModelID = queuedRequest.imageGenerationModelID
 
@@ -1283,7 +1293,8 @@ final class ChatViewModel: ObservableObject {
                 for: queuedRequest,
                 before: assistantMessageID,
                 advertisesTools: advertisesTools,
-                settings: activeSettings
+                settings: activeSettings,
+                researchFinalization: researchFinalization
             ) else {
                 throw NativChatError.invalidResponse
             }
@@ -1301,6 +1312,35 @@ final class ChatViewModel: ObservableObject {
                 }
             )
             let toolCalls = normalizedToolCalls(completion.toolCalls)
+
+            if var finalization = researchFinalization,
+               ChatResearchFinalizationPolicy.needsRetry(
+                   content: completion.content,
+                   toolCalls: toolCalls
+               ) {
+                resetAssistantMessageForRetry(
+                    assistantMessageID,
+                    in: queuedRequest.sessionID
+                )
+                guard finalization.retryCount == 0 else {
+                    finishAssistantMessage(
+                        assistantMessageID,
+                        in: queuedRequest.sessionID,
+                        fallbackContent: ChatResearchFinalizationPolicy.incompleteResponse(
+                            for: finalization
+                        ),
+                        fallbackReasoningContent: nil,
+                        responseMetrics: ChatResponseMetrics(completion: completion),
+                        toolCalls: [],
+                        isCancelled: false
+                    )
+                    return
+                }
+                finalization.retryCount += 1
+                researchFinalization = finalization
+                continue
+            }
+
             finishAssistantMessage(
                 assistantMessageID,
                 in: queuedRequest.sessionID,
@@ -1311,11 +1351,62 @@ final class ChatViewModel: ObservableObject {
                 isCancelled: false
             )
 
+            if researchFinalization != nil {
+                return
+            }
+
             guard advertisesTools, !toolCalls.isEmpty else {
                 return
             }
 
-            if !toolLoopGuard.allows(toolCalls) {
+            if let cachedResults = researchController?.cachedResults(for: toolCalls) {
+                var insertionAnchor = assistantMessageID
+                for cachedResult in cachedResults {
+                    let toolMessageID = UUID()
+                    guard insertToolMessage(
+                        id: toolMessageID,
+                        call: cachedResult.call,
+                        after: insertionAnchor,
+                        in: queuedRequest.sessionID,
+                        status: .succeeded,
+                        activityContext: queuedRequest.activityContext
+                    ) else {
+                        throw NativChatError.invalidResponse
+                    }
+                    updateToolMessage(
+                        toolMessageID,
+                        in: queuedRequest.sessionID,
+                        status: .succeeded,
+                        content: cachedResult.content,
+                        attachments: []
+                    )
+                    insertionAnchor = toolMessageID
+                }
+
+                advertisesTools = false
+                researchFinalization = researchController?.finalizationState(
+                    reason: .repeatedCalls,
+                    maximumEvidenceCharacters: researchEvidenceCharacterLimit(
+                        settings: activeSettings
+                    )
+                )
+                assistantMessageID = UUID()
+                activeAssistantMessageID = assistantMessageID
+                guard insertAssistantMessage(
+                    id: assistantMessageID,
+                    after: insertionAnchor,
+                    in: queuedRequest.sessionID,
+                    settings: activeSettings,
+                    activityContext: queuedRequest.activityContext
+                ) else {
+                    throw NativChatError.invalidResponse
+                }
+                continue
+            }
+
+            let bypassesGeneralLoopGuard = researchController != nil
+                && ChatResearchRunController.containsOnlyWebCalls(toolCalls)
+            if !bypassesGeneralLoopGuard && !toolLoopGuard.allows(toolCalls) {
                 var insertionAnchor = assistantMessageID
                 for toolCall in toolCalls {
                     let toolMessageID = UUID()
@@ -1324,7 +1415,8 @@ final class ChatViewModel: ObservableObject {
                         call: toolCall,
                         after: insertionAnchor,
                         in: queuedRequest.sessionID,
-                        status: .failed
+                        status: .failed,
+                        activityContext: queuedRequest.activityContext
                     ) else {
                         throw NativChatError.invalidResponse
                     }
@@ -1345,7 +1437,8 @@ final class ChatViewModel: ObservableObject {
                     id: assistantMessageID,
                     after: insertionAnchor,
                     in: queuedRequest.sessionID,
-                    settings: activeSettings
+                    settings: activeSettings,
+                    activityContext: queuedRequest.activityContext
                 ) else {
                     throw NativChatError.invalidResponse
                 }
@@ -1353,6 +1446,7 @@ final class ChatViewModel: ObservableObject {
             }
 
             var insertionAnchor = assistantMessageID
+            var researchObservations: [ChatResearchToolObservation] = []
             for (index, toolCall) in toolCalls.enumerated() {
                 try Task.checkCancellation()
                 let toolMessageID = UUID()
@@ -1366,7 +1460,8 @@ final class ChatViewModel: ObservableObject {
                     call: toolCall,
                     after: insertionAnchor,
                     in: queuedRequest.sessionID,
-                    status: initialToolStatus
+                    status: initialToolStatus,
+                    activityContext: queuedRequest.activityContext
                 ) else {
                     throw NativChatError.invalidResponse
                 }
@@ -1375,12 +1470,20 @@ final class ChatViewModel: ObservableObject {
                 guard let toolName = toolCall.function?.name,
                       let executionRoute = preparedRequest.executionRoutes[toolName]
                 else {
+                    let unavailablePayload = #"{"ok":false,"error":"This tool is not available in this chat."}"#
                     updateToolMessage(
                         toolMessageID,
                         in: queuedRequest.sessionID,
                         status: .failed,
-                        content: #"{"ok":false,"error":"This tool is not available in this chat."}"#,
+                        content: unavailablePayload,
                         attachments: []
+                    )
+                    researchObservations.append(
+                        ChatResearchToolObservation(
+                            call: toolCall,
+                            content: unavailablePayload,
+                            succeeded: false
+                        )
                     )
                     continue
                 }
@@ -1406,7 +1509,8 @@ final class ChatViewModel: ObservableObject {
                             currentCall: toolCall,
                             remainingCalls: Array(toolCalls.dropFirst(index + 1)),
                             after: insertionAnchor,
-                            in: queuedRequest.sessionID
+                            in: queuedRequest.sessionID,
+                            activityContext: queuedRequest.activityContext
                         )
                         throw CancellationError()
                     case .declined:
@@ -1446,7 +1550,8 @@ final class ChatViewModel: ObservableObject {
                             currentCall: toolCall,
                             remainingCalls: Array(toolCalls.dropFirst(index + 1)),
                             after: insertionAnchor,
-                            in: queuedRequest.sessionID
+                            in: queuedRequest.sessionID,
+                            activityContext: queuedRequest.activityContext
                         )
                         throw CancellationError()
                     case .declined:
@@ -1598,6 +1703,13 @@ final class ChatViewModel: ObservableObject {
                         content: outcome.content,
                         attachments: outcome.attachments
                     )
+                    researchObservations.append(
+                        ChatResearchToolObservation(
+                            call: toolCall,
+                            content: outcome.content,
+                            succeeded: true
+                        )
+                    )
                     appModel?.refreshMetricsIfRunning(force: true)
                 } catch is CancellationError {
                     cancelToolMessages(
@@ -1605,7 +1717,8 @@ final class ChatViewModel: ObservableObject {
                         currentCall: toolCall,
                         remainingCalls: Array(toolCalls.dropFirst(index + 1)),
                         after: insertionAnchor,
-                        in: queuedRequest.sessionID
+                        in: queuedRequest.sessionID,
+                        activityContext: queuedRequest.activityContext
                     )
                     throw CancellationError()
                 } catch let error as URLError where error.code == .cancelled {
@@ -1614,21 +1727,48 @@ final class ChatViewModel: ObservableObject {
                         currentCall: toolCall,
                         remainingCalls: Array(toolCalls.dropFirst(index + 1)),
                         after: insertionAnchor,
-                        in: queuedRequest.sessionID
+                        in: queuedRequest.sessionID,
+                        activityContext: queuedRequest.activityContext
                     )
                     throw CancellationError()
                 } catch {
+                    let failurePayload = ChatToolDispatcher.failurePayload(
+                        toolName: toolCall.function?.name,
+                        error: error
+                    )
                     updateToolMessage(
                         toolMessageID,
                         in: queuedRequest.sessionID,
                         status: .failed,
-                        content: ChatToolDispatcher.failurePayload(
-                            toolName: toolCall.function?.name,
-                            error: error
-                        ),
+                        content: failurePayload,
                         attachments: []
                     )
+                    researchObservations.append(
+                        ChatResearchToolObservation(
+                            call: toolCall,
+                            content: failurePayload,
+                            succeeded: false
+                        )
+                    )
                 }
+            }
+
+            if var controller = researchController {
+                if let reason = controller.record(
+                    researchObservations,
+                    responseTotalTokens: completion.usage?.resolvedTotalTokens,
+                    contextLimit: researchContextLimit(settings: activeSettings),
+                    maximumOutputTokens: activeSettings.maxTokens
+                ) {
+                    advertisesTools = false
+                    researchFinalization = controller.finalizationState(
+                        reason: reason,
+                        maximumEvidenceCharacters: researchEvidenceCharacterLimit(
+                            settings: activeSettings
+                        )
+                    )
+                }
+                researchController = controller
             }
 
             assistantMessageID = UUID()
@@ -1637,7 +1777,8 @@ final class ChatViewModel: ObservableObject {
                 id: assistantMessageID,
                 after: insertionAnchor,
                 in: queuedRequest.sessionID,
-                settings: activeSettings
+                settings: activeSettings,
+                activityContext: queuedRequest.activityContext
             ) else {
                 throw NativChatError.invalidResponse
             }
@@ -1648,7 +1789,8 @@ final class ChatViewModel: ObservableObject {
         for queuedRequest: QueuedChatRequest,
         before assistantMessageID: UUID,
         advertisesTools: Bool,
-        settings: NativSettings
+        settings: NativSettings,
+        researchFinalization: ChatResearchFinalizationState? = nil
     ) -> PreparedChatRequest? {
         guard let modelID = settings.languageModelID,
               let sessionMessages = sessionMessages(for: queuedRequest.sessionID),
@@ -1658,7 +1800,19 @@ final class ChatViewModel: ObservableObject {
         }
 
         let precedingMessages = sessionMessages[..<assistantIndex]
-        var requestMessages = precedingMessages.compactMap(\.apiMessage)
+        var requestMessages: [MLXChatMessage]
+        if let researchFinalization {
+            requestMessages = precedingMessages
+                .first(where: { $0.id == queuedRequest.userMessageID })?
+                .apiMessage
+                .map { [$0] } ?? []
+            requestMessages.append(MLXChatMessage(
+                role: "user",
+                content: "Research evidence:\n\n\(researchFinalization.evidence.content)"
+            ))
+        } else {
+            requestMessages = precedingMessages.compactMap(\.apiMessage)
+        }
 
         let advertisesToolsForModel = advertisesTools && queuedRequest.languageModelSupportsTools
         let resolvedCapabilities = ChatCapabilityResolver.resolve(
@@ -1680,13 +1834,18 @@ final class ChatViewModel: ObservableObject {
         if !toolDefinitions.isEmpty {
             systemParts.append(NativSkill.builtInToolGuide.instructions)
         }
-        systemParts += resolvedCapabilities.skillInstructions
+        if let researchFinalization {
+            systemParts.append(ChatResearchFinalizationPolicy.instruction(for: researchFinalization))
+        } else {
+            systemParts += resolvedCapabilities.skillInstructions
+        }
         if !systemParts.isEmpty {
             requestMessages.insert(
                 MLXChatMessage(role: "system", content: systemParts.joined(separator: "\n\n")),
                 at: 0
             )
         }
+        let enablesThinking = researchFinalization == nil && settings.thinkingEnabled
         let request = MLXChatCompletionRequest(
             model: modelID,
             messages: requestMessages,
@@ -1696,15 +1855,17 @@ final class ChatViewModel: ObservableObject {
             topP: settings.topP,
             minP: settings.minP,
             repetitionPenalty: settings.repetitionPenaltyEnabled ? settings.repetitionPenalty : nil,
-            enableThinking: settings.thinkingEnabled,
-            thinkingBudget: settings.thinkingEnabled
+            enableThinking: enablesThinking,
+            thinkingBudget: enablesThinking
                 && settings.thinkingBudgetEnabled
                 && !settings.speculativeDecodingActive
                 ? settings.thinkingBudget
                 : nil,
-            thinkingStartToken: settings.thinkingEnabled ? settings.thinkingStartToken : nil,
-            thinkingEndToken: settings.thinkingEnabled ? settings.thinkingEndToken : nil,
-            responseFormat: tools == nil ? settings.chatResponseFormat : nil,
+            thinkingStartToken: enablesThinking ? settings.thinkingStartToken : nil,
+            thinkingEndToken: enablesThinking ? settings.thinkingEndToken : nil,
+            responseFormat: tools == nil && researchFinalization == nil
+                ? settings.chatResponseFormat
+                : nil,
             tools: tools,
             toolChoice: tools == nil ? nil : "auto",
             stream: true
@@ -1717,12 +1878,32 @@ final class ChatViewModel: ObservableObject {
         )
     }
 
+    private func researchContextLimit(settings: NativSettings) -> Int? {
+        if settings.maxKVSize > 0 {
+            return settings.maxKVSize
+        }
+        guard let runtime = appModel?.metrics?.server else { return nil }
+        return runtime.effectiveContextLimit
+            ?? runtime.configuredContextLimit
+            ?? runtime.loadedContextSize
+    }
+
+    private func researchEvidenceCharacterLimit(settings: NativSettings) -> Int {
+        guard let contextLimit = researchContextLimit(settings: settings) else {
+            return 16_000
+        }
+        let outputReserve = min(max(settings.maxTokens, 1_024), contextLimit / 2)
+        let availableEvidenceTokens = max(contextLimit - outputReserve - 1_024, 334)
+        return min(availableEvidenceTokens * 3, 16_000)
+    }
+
     private func insertAssistantMessage(for queuedRequest: QueuedChatRequest) -> Bool {
         insertAssistantMessage(
             id: queuedRequest.assistantMessageID,
             after: queuedRequest.userMessageID,
             in: queuedRequest.sessionID,
-            settings: queuedRequest.settings
+            settings: queuedRequest.settings,
+            activityContext: queuedRequest.activityContext
         )
     }
 
@@ -1730,7 +1911,8 @@ final class ChatViewModel: ObservableObject {
         id: UUID,
         after messageID: UUID,
         in sessionID: UUID,
-        settings: NativSettings
+        settings: NativSettings,
+        activityContext: ChatActivityContext? = nil
     ) -> Bool {
         insertMessage(
             ChatTranscriptMessage(
@@ -1739,7 +1921,8 @@ final class ChatViewModel: ObservableObject {
                 content: "",
                 modelID: settings.languageModelID,
                 isStreaming: true,
-                isThinkingEnabled: settings.thinkingEnabled
+                isThinkingEnabled: settings.thinkingEnabled,
+                activityContext: activityContext
             ),
             after: messageID,
             in: sessionID
@@ -1751,7 +1934,8 @@ final class ChatViewModel: ObservableObject {
         call: MLXChatToolCall,
         after messageID: UUID,
         in sessionID: UUID,
-        status: ChatTranscriptMessage.ToolStatus = .running
+        status: ChatTranscriptMessage.ToolStatus = .running,
+        activityContext: ChatActivityContext? = nil
     ) -> Bool {
         insertMessage(
             ChatTranscriptMessage(
@@ -1762,7 +1946,8 @@ final class ChatViewModel: ObservableObject {
                 toolCallID: call.id,
                 toolName: call.function?.name,
                 toolStatus: status,
-                toolArguments: call.function?.arguments
+                toolArguments: call.function?.arguments,
+                activityContext: activityContext
             ),
             after: messageID,
             in: sessionID
@@ -1868,7 +2053,8 @@ final class ChatViewModel: ObservableObject {
         currentCall: MLXChatToolCall,
         remainingCalls: [MLXChatToolCall],
         after anchorID: UUID,
-        in sessionID: UUID
+        in sessionID: UUID,
+        activityContext: ChatActivityContext? = nil
     ) {
         let cancellation = CancellationError()
         updateToolMessage(
@@ -1885,7 +2071,13 @@ final class ChatViewModel: ObservableObject {
         var anchorID = anchorID
         for call in remainingCalls {
             let id = UUID()
-            guard insertToolMessage(id: id, call: call, after: anchorID, in: sessionID) else {
+            guard insertToolMessage(
+                id: id,
+                call: call,
+                after: anchorID,
+                in: sessionID,
+                activityContext: activityContext
+            ) else {
                 continue
             }
             updateToolMessage(
@@ -2129,6 +2321,19 @@ final class ChatViewModel: ObservableObject {
                 : nil
         }
         persistSession(sessionID, updateTimestamp: true)
+    }
+
+    private func resetAssistantMessageForRetry(_ id: UUID, in sessionID: UUID) {
+        clearStreamBuffers(id)
+        liveDecodeRateRefreshDates.removeValue(forKey: id)
+        updateMessage(id, in: sessionID) { message in
+            message.content = ""
+            message.reasoningContent = ""
+            message.toolCalls = []
+            message.responseMetrics = nil
+            message.isStreaming = true
+            message.thinkingDuration = nil
+        }
     }
 
     private func failAssistantMessage(_ id: UUID, in sessionID: UUID, error: Error) {

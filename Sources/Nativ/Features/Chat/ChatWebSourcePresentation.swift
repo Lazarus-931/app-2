@@ -37,20 +37,32 @@ struct ChatWebActivity {
 
 enum ChatWebSourcePresentation {
     static func activity(for message: ChatTranscriptMessage) -> ChatWebActivity? {
-        switch message.toolName {
+        activity(
+            toolName: message.toolName,
+            arguments: message.toolArguments,
+            result: message.content
+        )
+    }
+
+    static func activity(
+        toolName: String?,
+        arguments: String?,
+        result: String
+    ) -> ChatWebActivity? {
+        switch toolName {
         case ChatWebSearchToolRegistry.toolName:
             return ChatWebActivity(
-                query: stringArgument(named: "query", in: message.toolArguments),
+                query: stringArgument(named: "query", in: arguments),
                 focus: nil,
-                sources: searchSources(from: message.content)
+                sources: searchSources(from: result)
             )
         case ChatWebReadToolRegistry.toolName:
             return ChatWebActivity(
                 query: nil,
-                focus: stringArgument(named: "focus", in: message.toolArguments),
+                focus: stringArgument(named: "focus", in: arguments),
                 sources: readSources(
-                    arguments: message.toolArguments,
-                    result: message.content
+                    arguments: arguments,
+                    result: result
                 )
             )
         default:

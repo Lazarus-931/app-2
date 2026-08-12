@@ -28,7 +28,7 @@ struct ChatToolLoopGuard {
     private var seenBatches = Set<[String]>()
 
     mutating func allows(_ calls: [MLXChatToolCall]) -> Bool {
-        let batch = calls.map(Self.signature).sorted()
+        let batch = calls.map(ChatToolCallSignature.value).sorted()
         return seenBatches.insert(batch).inserted
     }
 
@@ -36,8 +36,10 @@ struct ChatToolLoopGuard {
     {"ok":false,"error":{"code":"repeated_tool_calls",\
     "message":"These exact tool calls already ran. Use their results to answer, or change the arguments."}}
     """
+}
 
-    private static func signature(_ call: MLXChatToolCall) -> String {
+enum ChatToolCallSignature {
+    static func value(for call: MLXChatToolCall) -> String {
         let name = call.function?.name ?? ""
         let arguments = canonicalJSON(call.function?.arguments)
         return "\(name)\n\(arguments)"
