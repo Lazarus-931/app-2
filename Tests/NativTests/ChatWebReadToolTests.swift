@@ -68,6 +68,8 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertTrue(WebSearchProvider.nimble.supports(.read))
         XCTAssertTrue(WebSearchProvider.firecrawl.supports(.read))
         XCTAssertFalse(WebSearchProvider.perplexity.supports(.read))
+        XCTAssertTrue(WebSearchProvider.tavily.supports(.read))
+        XCTAssertTrue(WebSearchProvider.parallel.supports(.read))
     }
 
     func testSearchOnlyProviderDoesNotAdvertiseReadWithoutAReader() throws {
@@ -227,6 +229,76 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertEqual(body["removeBase64Images"] as? Bool, true)
         XCTAssertEqual(pages.first?.title, "Example")
         XCTAssertEqual(pages.first?.content, "Firecrawl page")
+    }
+
+    func testTavilyUsesFocusedBatchExtraction() async throws {
+        let client = StubWebReadHTTPClient(
+            response: #"{"results":[{"url":"https://example.com/tavily","raw_content":"Relevant Tavily content"}]}"#
+        )
+
+        let pages = try await WebReadService(client: client).read(
+            provider: .tavily,
+            apiKey: "tavily-key",
+            urls: ["https://example.com/tavily"],
+            focus: "What matters?"
+        )
+
+        let requests = await client.recordedRequests()
+        let request = try XCTUnwrap(requests.first)
+        let body = try body(of: request)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.tavily.com/extract")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer tavily-key")
+        XCTAssertEqual(body["query"] as? String, "What matters?")
+        XCTAssertEqual(body["chunks_per_source"] as? Int, 5)
+        XCTAssertEqual(body["extract_depth"] as? String, "basic")
+        XCTAssertEqual(pages.first?.content, "Relevant Tavily content")
+        XCTAssertEqual(pages.first?.truncated, true)
+    }
+
+    func testParallelRequestsFocusedExcerpts() async throws {
+        let client = StubWebReadHTTPClient(
+            response: #"{"results":[{"url":"https://example.com/parallel","title":"Example","excerpts":["Focused excerpt"],"full_content":null}]}"#
+        )
+
+        let pages = try await WebReadService(client: client).read(
+            provider: .parallel,
+            apiKey: "parallel-key",
+            urls: ["https://example.com/parallel"],
+            focus: "What matters?"
+        )
+
+        let requests = await client.recordedRequests()
+        let request = try XCTUnwrap(requests.first)
+        let body = try body(of: request)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.parallel.ai/v1/extract")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "parallel-key")
+        XCTAssertEqual(body["objective"] as? String, "What matters?")
+        XCTAssertEqual(body["max_chars_total"] as? Int, 6_000)
+        XCTAssertNil(body["advanced_settings"])
+        XCTAssertEqual(pages.first?.title, "Example")
+        XCTAssertEqual(pages.first?.content, "Focused excerpt")
+        XCTAssertEqual(pages.first?.truncated, true)
+    }
+
+    func testParallelRequestsBoundedFullContentWithoutFocus() async throws {
+        let client = StubWebReadHTTPClient(
+            response: #"{"results":[{"url":"https://example.com/parallel","excerpts":["Excerpt"],"full_content":"Full page"}]}"#
+        )
+
+        let pages = try await WebReadService(client: client).read(
+            provider: .parallel,
+            apiKey: "parallel-key",
+            urls: ["https://example.com/parallel"]
+        )
+
+        let requests = await client.recordedRequests()
+        let request = try XCTUnwrap(requests.first)
+        let body = try body(of: request)
+        let advancedSettings = try XCTUnwrap(body["advanced_settings"] as? [String: Any])
+        let fullContent = try XCTUnwrap(advancedSettings["full_content"] as? [String: Any])
+        XCTAssertEqual(fullContent["max_chars_per_result"] as? Int, 6_000)
+        XCTAssertEqual(pages.first?.content, "Full page")
+        XCTAssertEqual(pages.first?.truncated, false)
     }
 
     func testIndependentPageReadsRunConcurrentlyAndPreserveOrder() async throws {

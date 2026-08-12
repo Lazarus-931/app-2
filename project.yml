@@ -190,6 +190,8 @@ targets:
       - path: Sources/Nativ/Features/Browsing/Providers/FirecrawlBrowsingProvider.swift
       - path: Sources/Nativ/Features/Browsing/Providers/NimbleBrowsingProvider.swift
       - path: Sources/Nativ/Features/Browsing/Providers/PerplexityBrowsingProvider.swift
+      - path: Sources/Nativ/Features/Browsing/Providers/TavilyBrowsingProvider.swift
+      - path: Sources/Nativ/Features/Browsing/Providers/ParallelBrowsingProvider.swift
       - path: Sources/Nativ/Features/Browsing/WebReadContentSelector.swift
       - path: Sources/Nativ/Features/Browsing/WebReadService.swift
       - path: Sources/Nativ/Features/Browsing/WebSearchProvider.swift

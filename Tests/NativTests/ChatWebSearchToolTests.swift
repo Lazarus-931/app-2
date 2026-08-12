@@ -167,6 +167,53 @@ final class ChatWebSearchToolTests: XCTestCase {
         XCTAssertEqual(results.first?.snippet, "A snippet")
     }
 
+    func testTavilyRequestAndResultMapping() async throws {
+        let client = StubWebSearchHTTPClient(
+            response: #"{"results":[{"title":"Tavily result","url":"https://tavily.com","content":"A focused result"}]}"#
+        )
+
+        let results = try await WebSearchService(client: client).search(
+            provider: .tavily,
+            apiKey: "tavily-key",
+            query: "search",
+            limit: 2
+        )
+
+        let capturedRequest = await client.recordedRequest()
+        let request = try XCTUnwrap(capturedRequest)
+        let body = try body(of: request)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.tavily.com/search")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer tavily-key")
+        XCTAssertEqual(body["max_results"] as? Int, 2)
+        XCTAssertEqual(body["search_depth"] as? String, "fast")
+        XCTAssertEqual(body["include_answer"] as? Bool, false)
+        XCTAssertEqual(body["include_raw_content"] as? Bool, false)
+        XCTAssertEqual(results.first?.snippet, "A focused result")
+    }
+
+    func testParallelRequestAndResultMapping() async throws {
+        let client = StubWebSearchHTTPClient(
+            response: #"{"results":[{"title":"Parallel result","url":"https://parallel.ai","excerpts":["First","Second"]}]}"#
+        )
+
+        let results = try await WebSearchService(client: client).search(
+            provider: .parallel,
+            apiKey: "parallel-key",
+            query: "search",
+            limit: 2
+        )
+
+        let capturedRequest = await client.recordedRequest()
+        let request = try XCTUnwrap(capturedRequest)
+        let body = try body(of: request)
+        XCTAssertEqual(request.url?.absoluteString, "https://api.parallel.ai/v1/search")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "x-api-key"), "parallel-key")
+        XCTAssertEqual(body["search_queries"] as? [String], ["search"])
+        XCTAssertEqual(body["mode"] as? String, "basic")
+        XCTAssertEqual(body["max_chars_total"] as? Int, 1_000)
+        XCTAssertEqual(results.first?.snippet, "First\n\nSecond")
+    }
+
     func testCredentialValidationAcceptsAnEmptyResultSet() async throws {
         let client = StubWebSearchHTTPClient(response: #"{"web":{"results":[]}}"#)
 

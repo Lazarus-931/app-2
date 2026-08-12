@@ -58,6 +58,10 @@ struct WebBrowsingProviderRegistry: Sendable {
             FirecrawlBrowsingProvider(transport: transport)
         case .perplexity:
             PerplexityBrowsingProvider(transport: transport)
+        case .tavily:
+            TavilyBrowsingProvider(transport: transport)
+        case .parallel:
+            ParallelBrowsingProvider(transport: transport)
         }
     }
 }

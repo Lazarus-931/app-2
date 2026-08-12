@@ -346,11 +346,11 @@ struct WebBrowsingSettingsView: View {
         switch viewModel.selectedCapability {
         case .search:
             if viewModel.searchProvider == provider {
-                routeBadge("Search")
+                routeBadge("Active")
             }
         case .read:
             if viewModel.resolvedPageReaderProvider == provider {
-                routeBadge("Reader")
+                routeBadge("Active")
             }
         }
     }
@@ -528,8 +528,12 @@ private struct ProviderLogo: View {
             if let image {
                 Image(nsImage: image)
                     .resizable()
+                    .renderingMode(
+                        provider.metadata.rendersLogoAsTemplate ? .template : .original
+                    )
                     .interpolation(.high)
                     .scaledToFit()
+                    .foregroundStyle(.primary)
                     .accessibilityHidden(true)
             } else {
                 Image(systemName: "globe")

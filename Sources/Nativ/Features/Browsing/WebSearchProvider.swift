@@ -17,6 +17,8 @@ enum WebSearchProvider: String, CaseIterable, Identifiable, Sendable {
     case nimble
     case firecrawl
     case perplexity
+    case tavily
+    case parallel
 
     var id: String { rawValue }
 
@@ -30,7 +32,7 @@ enum WebSearchProvider: String, CaseIterable, Identifiable, Sendable {
             true
         case .read:
             switch self {
-            case .exa, .nimble, .firecrawl:
+            case .exa, .nimble, .firecrawl, .tavily, .parallel:
                 true
             case .brave, .perplexity:
                 false
@@ -70,6 +72,20 @@ enum WebSearchProvider: String, CaseIterable, Identifiable, Sendable {
                 logoResourceName: "Perplexity",
                 apiKeySetupURL: .webSearchURL("https://console.perplexity.ai/group/keys")
             )
+        case .tavily:
+            WebSearchProviderMetadata(
+                displayName: "Tavily",
+                logoResourceName: "Tavily",
+                rendersLogoAsTemplate: true,
+                apiKeySetupURL: .webSearchURL("https://app.tavily.com")
+            )
+        case .parallel:
+            WebSearchProviderMetadata(
+                displayName: "Parallel",
+                logoResourceName: "Parallel",
+                rendersLogoAsTemplate: true,
+                apiKeySetupURL: .webSearchURL("https://platform.parallel.ai")
+            )
         }
     }
 }
@@ -77,6 +93,7 @@ enum WebSearchProvider: String, CaseIterable, Identifiable, Sendable {
 struct WebSearchProviderMetadata: Sendable {
     let displayName: String
     let logoResourceName: String
+    var rendersLogoAsTemplate = false
     let apiKeySetupURL: URL
 }
 
