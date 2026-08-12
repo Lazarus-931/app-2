@@ -96,7 +96,7 @@ enum ChatCapabilityCatalog {
                 detail: $0.summary,
                 kind: .kit,
                 systemImage: $0.symbol,
-                isAvailable: kitIsAvailable($0, snapshot: snapshot)
+                isAvailable: kitIsAvailable($0, settings: settings)
             )
         }
     }
@@ -124,11 +124,21 @@ enum ChatCapabilityCatalog {
 
     private static func kitIsAvailable(
         _ kit: NativKit,
-        snapshot: ChatKitSelection
+        settings: NativSettings
     ) -> Bool {
-        let expectedCount = kit.builtInToolNames.count + kit.mcpEntries.count + kit.skills.count
+        // Check each requirement resolves rather than comparing Set counts, which
+        // silently under-counts if two entries collapse to the same capability ID.
+        let skillsReady = kit.skills.allSatisfy { skill in
+            skill.isChatBuiltIn || settings.skills.contains { $0.id == skill.id }
+        }
+        let mcpReady = kit.mcpEntries.allSatisfy { entry in
+            settings.mcpServers.contains {
+                $0.command == entry.command && $0.arguments == entry.arguments
+            }
+        }
         return kit.extensionIDs.isEmpty
-            && snapshot.capabilityIDs.count == expectedCount
+            && skillsReady
+            && mcpReady
             && ChatToolRegistry.areConfigured(Set(kit.builtInToolNames))
     }
 

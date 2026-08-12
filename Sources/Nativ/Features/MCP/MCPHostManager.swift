@@ -33,6 +33,16 @@ final class MCPServerLease {
         isReleased = true
         host?.releaseLease(id)
     }
+
+    deinit {
+        // Safety net: if an owner drops the lease without calling release()
+        // (e.g. a cancelled task before its defer runs), free its servers so
+        // they aren't left connected for the app's lifetime. releaseLease is
+        // idempotent, so a normal release() first makes this a no-op.
+        guard !isReleased, let host else { return }
+        let id = self.id
+        Task { @MainActor in host.releaseLease(id) }
+    }
 }
 
 @MainActor
@@ -50,6 +60,9 @@ final class MCPHostManager: ObservableObject {
     private var appliedServers: [MCPServerConfig] = []
     private var leasedServerIDs: [UUID: Set<UUID>] = [:]
     private var manuallyConnectedServerIDs = Set<UUID>()
+    // Slugs embedded in tool names must stay stable across reconnects, so a
+    // server keeps its assigned slug for as long as it remains configured.
+    private var slugByServerID: [UUID: String] = [:]
     private var reloadTask: Task<Void, Never>?
     private var reloadGeneration = 0
 
@@ -169,6 +182,7 @@ final class MCPHostManager: ObservableObject {
         states = [:]
         leasedServerIDs = [:]
         manuallyConnectedServerIDs = []
+        slugByServerID = [:]
         Task {
             for connection in previous.values {
                 await connection.client.disconnect()
@@ -183,8 +197,10 @@ final class MCPHostManager: ObservableObject {
         reloadTask = Task { [weak self] in
             if debounce {
                 try? await Task.sleep(for: .milliseconds(400))
-                if Task.isCancelled { return }
             }
+            // Bail for both paths once superseded, so a non-debounced reload
+            // that was cancelled by a newer one never runs applyReload.
+            if Task.isCancelled { return }
             await self?.applyReload(servers: servers, generation: generation)
         }
     }
@@ -201,6 +217,9 @@ final class MCPHostManager: ObservableObject {
     }
 
     private func applyReload(servers: [MCPServerConfig], generation: Int) async {
+        // A superseded reload must not mutate shared connection/state; the newer
+        // generation owns it now.
+        guard generation == reloadGeneration else { return }
         manuallyConnectedServerIDs.formIntersection(servers.map(\.id))
         let activeServerIDs = leasedServerIDs.values.reduce(
             into: manuallyConnectedServerIDs
@@ -211,6 +230,10 @@ final class MCPHostManager: ObservableObject {
         let activeByID = Dictionary(active.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         for (id, connection) in connections {
+            // Re-check between awaits: a newer reload can supersede us while a
+            // previous disconnect is in flight, and it must not tear down a
+            // server the newer generation wants to keep.
+            guard generation == reloadGeneration else { return }
             let reusable = activeByID[id].map { Self.launchEquivalent($0, connection.config) } ?? false
             if !reusable {
                 connections[id] = nil
@@ -272,7 +295,7 @@ final class MCPHostManager: ObservableObject {
                     continue
                 }
                 if let tools = outcome.tools {
-                    let slug = Self.uniqueSlug(for: outcome.config, used: &usedSlugs)
+                    let slug = uniqueSlug(for: outcome.config, used: &usedSlugs)
                     connections[outcome.config.id] = Connection(
                         config: outcome.config,
                         client: outcome.client,
@@ -327,6 +350,7 @@ final class MCPHostManager: ObservableObject {
     private func pruneStates(keeping servers: [MCPServerConfig]) {
         let ids = Set(servers.map(\.id))
         states = states.filter { ids.contains($0.key) }
+        slugByServerID = slugByServerID.filter { ids.contains($0.key) }
     }
 
     private static func toolName(slug: String, tool: String) -> String {
@@ -390,8 +414,14 @@ final class MCPHostManager: ObservableObject {
         return joined.isEmpty ? "server" : joined
     }
 
-    private static func uniqueSlug(for config: MCPServerConfig, used: inout Set<String>) -> String {
-        let base = slug(config.name.isEmpty ? config.command : config.name)
+    private func uniqueSlug(for config: MCPServerConfig, used: inout Set<String>) -> String {
+        // Reuse a server's previously assigned slug when it's still free, so a
+        // reconnect keeps the same slug (and therefore the same tool names).
+        if let existing = slugByServerID[config.id], !used.contains(existing) {
+            used.insert(existing)
+            return existing
+        }
+        let base = Self.slug(config.name.isEmpty ? config.command : config.name)
         var candidate = base
         var suffix = 2
         while used.contains(candidate) {
@@ -399,6 +429,7 @@ final class MCPHostManager: ObservableObject {
             suffix += 1
         }
         used.insert(candidate)
+        slugByServerID[config.id] = candidate
         return candidate
     }
 }

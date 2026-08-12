@@ -97,12 +97,18 @@ struct WebReadService: Sendable {
         var remainingCharacters = Self.maximumTotalCharacters
         return documents.map { document in
             guard let content = document.content, document.error == nil else {
+                // Never report a content-less page as a silent success: synthesize
+                // an error when the provider returned neither content nor an error
+                // so the caller can tell "empty page" from "read failed".
                 return WebReadPage(
                     url: document.url,
                     title: document.title,
                     content: nil,
                     truncated: false,
-                    error: document.error
+                    error: document.error ?? WebReadPageError(
+                        code: "empty_content",
+                        message: "The provider returned no readable content for this URL."
+                    )
                 )
             }
 

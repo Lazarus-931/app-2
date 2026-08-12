@@ -99,7 +99,13 @@ final class WebBrowsingSettingsViewModel: ObservableObject {
     }
 
     private var initialPageReaderProvider: WebSearchProvider {
-        WebSearchProvider.pageReaders.first ?? .exa
+        // Prefer the actually-configured page reader, then the saved choice,
+        // so opening or switching to "Page reading" doesn't reset to Exa and
+        // route a newly entered key to the wrong provider.
+        resolvedPageReaderProvider
+            ?? pageReaderProvider
+            ?? WebSearchProvider.pageReaders.first
+            ?? .exa
     }
 
     var availableProviders: [WebSearchProvider] {

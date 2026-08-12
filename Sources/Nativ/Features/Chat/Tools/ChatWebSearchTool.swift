@@ -3,6 +3,7 @@ import NativServerKit
 
 enum ChatWebSearchToolRegistry {
     static let toolName = "web_search"
+    static let maximumQueryLength = 300
 
     static func isConfigured(
         credentials: any WebSearchCredentialStoring = KeychainWebSearchCredentialStore(),
@@ -24,7 +25,8 @@ enum ChatWebSearchToolRegistry {
                 "properties": .object([
                     "query": .object([
                         "type": .string("string"),
-                        "description": .string("A focused web search query.")
+                        "description": .string("A focused web search query."),
+                        "maxLength": .number(Double(maximumQueryLength))
                     ])
                 ]),
                 "required": .array([.string("query")])
@@ -54,6 +56,12 @@ struct ChatWebSearchToolExecutor {
         }
         guard let rawArguments = call.function?.arguments?.data(using: .utf8),
               let arguments = try? JSONDecoder().decode(WebSearchToolArguments.self, from: rawArguments) else {
+            throw WebBrowsingError.invalidArguments
+        }
+        // Reject an over-long query rather than silently truncating it, matching
+        // the maxLength advertised in the tool schema (and web_read's handling).
+        guard arguments.query.trimmingCharacters(in: .whitespacesAndNewlines).count
+                <= ChatWebSearchToolRegistry.maximumQueryLength else {
             throw WebBrowsingError.invalidArguments
         }
 

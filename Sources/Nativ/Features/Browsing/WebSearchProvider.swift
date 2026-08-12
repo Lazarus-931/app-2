@@ -216,7 +216,10 @@ enum WebSearchCredentialError: LocalizedError {
 private extension URL {
     static func webSearchURL(_ value: String) -> URL {
         guard let url = URL(string: value) else {
-            preconditionFailure("Invalid web search URL")
+            // These are hardcoded literals; flag a bad one in debug but degrade
+            // gracefully in release rather than crashing the whole app.
+            assertionFailure("Invalid web search URL: \(value)")
+            return URL(string: "https://example.com")!
         }
         return url
     }
