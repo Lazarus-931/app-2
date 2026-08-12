@@ -106,8 +106,10 @@ private struct ImageGenerationComposer: View {
     let onSelectWorkspaceMode: (ChatWorkspaceMode) -> Void
     @StateObject private var localLibrary = LocalModelLibrary()
     @State private var editorContentHeight: CGFloat = 0
+    @State private var showsAddPanel = false
     @State private var showsSettings = false
     @State private var isDropTargeted = false
+    @State private var composerWidth: CGFloat = 410
 
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
     private let editorMinimumHeight: CGFloat = 64
@@ -139,13 +141,7 @@ private struct ImageGenerationComposer: View {
                 referenceTray
 
                 HStack(spacing: 8) {
-                    ChatComposerActionMenu(
-                        isEnabled: canCompose,
-                        canPasteImage: viewModel.canPasteImage,
-                        onAttachImages: viewModel.chooseImageAttachments,
-                        onPasteImage: viewModel.pasteImageFromClipboard,
-                        onCaptureScreenshot: viewModel.captureScreenshot
-                    )
+                    ChatComposerAddButton(isEnabled: canCompose, isPresented: $showsAddPanel)
                     .frame(width: 30, height: 30)
                     .help("Add a reference image")
 
@@ -193,6 +189,20 @@ private struct ImageGenerationComposer: View {
                     .stroke(isDropTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isDropTargeted ? 2 : 0.75)
             }
             .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                composerWidth = width
+            }
+            .popover(isPresented: $showsAddPanel, arrowEdge: .bottom) {
+                ChatComposerActionPanel(
+                    canPasteImage: viewModel.canPasteImage,
+                    onAttachImages: { dismissAddPanelAndPerform(viewModel.chooseImageAttachments) },
+                    onPasteImage: { dismissAddPanelAndPerform(viewModel.pasteImageFromClipboard) },
+                    onCaptureScreenshot: { dismissAddPanelAndPerform(viewModel.captureScreenshot) }
+                )
+                .frame(width: max(320, composerWidth))
+            }
             .onDrop(
                 of: ImageGenerationDrag.supportedDropTypeIdentifiers,
                 isTargeted: $isDropTargeted,
@@ -222,6 +232,14 @@ private struct ImageGenerationComposer: View {
         }
         .onDisappear {
             localLibrary.cancel()
+        }
+    }
+
+    private func dismissAddPanelAndPerform(_ action: @escaping () -> Void) {
+        showsAddPanel = false
+        Task { @MainActor in
+            await Task.yield()
+            action()
         }
     }
 

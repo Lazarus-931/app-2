@@ -94,10 +94,12 @@ struct ChatComposer: View {
     @State private var didApplyInitialReasoningDefault = false
     @State private var showsKits = false
     @State private var showsCapabilities = false
+    @State private var showsAddPanel = false
     @State private var showsBrowsingSettings = false
     @State private var browsingSettingsCapability = WebBrowsingCapability.search
     @State private var isWebSearchAvailable = false
     @State private var isDeepResearchAvailable = false
+    @State private var composerWidth: CGFloat = 410
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
     private let editorMinimumHeight: CGFloat = 64
     private let editorMaximumHeight: CGFloat = 120
@@ -193,36 +195,7 @@ struct ChatComposer: View {
                 }
 
                 HStack(spacing: 8) {
-                    ChatComposerActionMenu(
-                        isEnabled: canCompose,
-                        canPasteImage: viewModel.canPasteImage,
-                        showsBrowsingCapabilities: true,
-                        isWebSearchSelected: viewModel.isCapabilitySelected(webSearchReference),
-                        isWebSearchAvailable: isWebSearchAvailable,
-                        isDeepResearchSelected: viewModel.isCapabilitySelected(deepResearchReference),
-                        isDeepResearchAvailable: isDeepResearchAvailable,
-                        onAttachImages: viewModel.chooseImageAttachments,
-                        onPasteImage: viewModel.pasteImageFromClipboard,
-                        onCaptureScreenshot: viewModel.captureScreenshot,
-                        onToggleWebSearch: {
-                            toggleBrowsingCapability(
-                                webSearchReference,
-                                isSelected: viewModel.isCapabilitySelected(webSearchReference),
-                                isAvailable: isWebSearchAvailable,
-                                setupCapability: .search
-                            )
-                        },
-                        onToggleDeepResearch: {
-                            toggleBrowsingCapability(
-                                deepResearchReference,
-                                isSelected: viewModel.isCapabilitySelected(deepResearchReference),
-                                isAvailable: isDeepResearchAvailable,
-                                setupCapability: .read
-                            )
-                        },
-                        onOpenKits: { showsKits = true },
-                        onOpenCapabilities: { showsCapabilities = true }
-                    )
+                    ChatComposerAddButton(isEnabled: canCompose, isPresented: $showsAddPanel)
                     .frame(width: 30, height: 30)
                     .help("Add attachment")
 
@@ -264,6 +237,14 @@ struct ChatComposer: View {
                     .stroke(Color(nsColor: .separatorColor), lineWidth: 0.75)
             }
             .shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 4)
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                composerWidth = width
+            }
+            .popover(isPresented: $showsAddPanel, arrowEdge: .bottom) {
+                addPanel
+            }
         }
         .padding(.vertical, 18)
         .task(id: modelScanKey) {
@@ -302,6 +283,51 @@ struct ChatComposer: View {
         }
         .sheet(isPresented: $showsBrowsingSettings) {
             BrowsingSettingsSheet(initialCapability: browsingSettingsCapability)
+        }
+    }
+
+    private var addPanel: some View {
+        ChatComposerActionPanel(
+            canPasteImage: viewModel.canPasteImage,
+            showsBrowsingCapabilities: true,
+            isWebSearchSelected: viewModel.isCapabilitySelected(webSearchReference),
+            isWebSearchAvailable: isWebSearchAvailable,
+            isDeepResearchSelected: viewModel.isCapabilitySelected(deepResearchReference),
+            isDeepResearchAvailable: isDeepResearchAvailable,
+            onAttachImages: { dismissAddPanelAndPerform(viewModel.chooseImageAttachments) },
+            onPasteImage: { dismissAddPanelAndPerform(viewModel.pasteImageFromClipboard) },
+            onCaptureScreenshot: { dismissAddPanelAndPerform(viewModel.captureScreenshot) },
+            onToggleWebSearch: {
+                dismissAddPanelAndPerform {
+                    toggleBrowsingCapability(
+                        webSearchReference,
+                        isSelected: viewModel.isCapabilitySelected(webSearchReference),
+                        isAvailable: isWebSearchAvailable,
+                        setupCapability: .search
+                    )
+                }
+            },
+            onToggleDeepResearch: {
+                dismissAddPanelAndPerform {
+                    toggleBrowsingCapability(
+                        deepResearchReference,
+                        isSelected: viewModel.isCapabilitySelected(deepResearchReference),
+                        isAvailable: isDeepResearchAvailable,
+                        setupCapability: .read
+                    )
+                }
+            },
+            onOpenKits: { dismissAddPanelAndPerform { showsKits = true } },
+            onOpenCapabilities: { dismissAddPanelAndPerform { showsCapabilities = true } }
+        )
+        .frame(width: max(320, composerWidth))
+    }
+
+    private func dismissAddPanelAndPerform(_ action: @escaping () -> Void) {
+        showsAddPanel = false
+        Task { @MainActor in
+            await Task.yield()
+            action()
         }
     }
 
@@ -1208,8 +1234,26 @@ private struct ChatComposerModelIcon: View {
     }
 }
 
-struct ChatComposerActionMenu: NSViewRepresentable {
+struct ChatComposerAddButton: View {
     let isEnabled: Bool
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        Button {
+            isPresented.toggle()
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .regular))
+                .frame(width: 30, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+        .accessibilityLabel("More message options")
+    }
+}
+
+struct ChatComposerActionPanel: View {
     let canPasteImage: Bool
     var showsBrowsingCapabilities = false
     var isWebSearchSelected = false
@@ -1224,191 +1268,165 @@ struct ChatComposerActionMenu: NSViewRepresentable {
     var onOpenKits: (() -> Void)? = nil
     var onOpenCapabilities: (() -> Void)? = nil
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
+    var body: some View {
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 10) {
+                section("Add") {
+                    ChatComposerActionRow(
+                        title: "Add images",
+                        detail: "Choose images from your Mac",
+                        systemName: "paperclip",
+                        action: onAttachImages
+                    )
+
+                    if canPasteImage {
+                        ChatComposerActionRow(
+                            title: "Paste image",
+                            detail: "Use an image from your clipboard",
+                            systemName: "doc.on.clipboard",
+                            action: onPasteImage
+                        )
+                    }
+
+                    ChatComposerActionRow(
+                        title: "Take a screenshot",
+                        detail: "Capture part of your screen",
+                        systemName: "camera.viewfinder",
+                        action: onCaptureScreenshot
+                    )
+
+                    if showsBrowsingCapabilities {
+                        ChatComposerActionRow(
+                            title: "Web Search",
+                            detail: isWebSearchAvailable
+                                ? "Find current information online"
+                                : "Set up a search provider",
+                            systemName: "globe",
+                            isSelected: isWebSearchSelected,
+                            showsDisclosure: !isWebSearchAvailable,
+                            action: onToggleWebSearch
+                        )
+
+                        ChatComposerActionRow(
+                            title: "Deep Research",
+                            detail: isDeepResearchAvailable
+                                ? "Search and read multiple sources"
+                                : "Set up search and page reading",
+                            systemName: "sparkles",
+                            isSelected: isDeepResearchSelected,
+                            showsDisclosure: !isDeepResearchAvailable,
+                            action: onToggleDeepResearch
+                        )
+                    }
+                }
+
+                if onOpenKits != nil || onOpenCapabilities != nil {
+                    section("Capabilities") {
+                        if let onOpenKits {
+                            ChatComposerActionRow(
+                                title: "Kits",
+                                detail: "Add a bundled set of capabilities",
+                                systemName: "shippingbox",
+                                showsDisclosure: true,
+                                action: onOpenKits
+                            )
+                        }
+
+                        if let onOpenCapabilities {
+                            ChatComposerActionRow(
+                                title: "Directory",
+                                detail: "Choose tools, skills, and connections",
+                                systemName: "square.grid.2x2",
+                                showsDisclosure: true,
+                                action: onOpenCapabilities
+                            )
+                        }
+                    }
+                }
+            }
+            .padding(10)
+        }
+        .frame(maxHeight: 420)
     }
 
-    func makeNSView(context: Context) -> NSButton {
-        let button = NSButton()
-        button.isBordered = false
-        button.imagePosition = .imageOnly
-        button.focusRingType = .none
-        button.target = context.coordinator
-        button.action = #selector(Coordinator.showMenu(_:))
-        button.image = NSImage(
-            systemSymbolName: "plus",
-            accessibilityDescription: "More message options"
-        )?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        )
-        button.setAccessibilityLabel("More message options")
-        return button
+    private func section<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+
+            VStack(spacing: 1) {
+                content()
+            }
+        }
+    }
+}
+
+private struct ChatComposerActionRow: View {
+    let title: String
+    let detail: String
+    let systemName: String
+    var isSelected = false
+    var showsDisclosure = false
+    let action: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 11) {
+                Image(systemName: systemName)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(width: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+
+                    Text(detail)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 12)
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                } else if showsDisclosure {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 9)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(rowBackground)
+            }
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .animation(.easeOut(duration: 0.12), value: isSelected)
     }
 
-    func updateNSView(_ button: NSButton, context: Context) {
-        context.coordinator.parent = self
-        button.isEnabled = isEnabled
-    }
-
-    @MainActor
-    final class Coordinator: NSObject {
-        var parent: ChatComposerActionMenu
-
-        init(parent: ChatComposerActionMenu) {
-            self.parent = parent
+    private var rowBackground: Color {
+        if isSelected {
+            return Color.accentColor.opacity(isHovering ? 0.15 : 0.10)
         }
-
-        @objc func showMenu(_ sender: NSButton) {
-            let menu = makeMenu()
-            if let event = NSApp.currentEvent {
-                NSMenu.popUpContextMenu(menu, with: event, for: sender)
-            } else {
-                menu.popUp(
-                    positioning: nil,
-                    at: NSPoint(x: -8, y: sender.bounds.maxY + 4),
-                    in: sender
-                )
-            }
-        }
-
-        private func makeMenu() -> NSMenu {
-            let menu = NSMenu()
-            menu.autoenablesItems = false
-            menu.minimumWidth = 190
-
-            let imageItem = NSMenuItem(
-                title: "Upload Image…",
-                action: #selector(attachImages(_:)),
-                keyEquivalent: ""
-            )
-            imageItem.target = self
-            imageItem.image = menuImage("photo.badge.plus", description: "Upload Image")
-            imageItem.isEnabled = true
-            menu.addItem(imageItem)
-
-            let pasteItem = NSMenuItem(
-                title: "Paste Image",
-                action: #selector(pasteImage(_:)),
-                keyEquivalent: ""
-            )
-            pasteItem.target = self
-            pasteItem.image = menuImage("doc.on.clipboard", description: "Paste Image")
-            pasteItem.isEnabled = parent.canPasteImage
-            menu.addItem(pasteItem)
-
-            let screenshotItem = NSMenuItem(
-                title: "Take Screenshot",
-                action: #selector(captureScreenshot(_:)),
-                keyEquivalent: ""
-            )
-            screenshotItem.target = self
-            screenshotItem.image = menuImage("camera.viewfinder", description: "Take Screenshot")
-            screenshotItem.isEnabled = true
-            menu.addItem(screenshotItem)
-
-            if parent.showsBrowsingCapabilities {
-                menu.addItem(.separator())
-                menu.addItem(capabilityItem(
-                    title: "Web Search",
-                    systemName: "globe",
-                    isSelected: parent.isWebSearchSelected,
-                    isAvailable: parent.isWebSearchAvailable,
-                    action: #selector(toggleWebSearch(_:))
-                ))
-                menu.addItem(capabilityItem(
-                    title: "Deep Research",
-                    systemName: "sparkles",
-                    isSelected: parent.isDeepResearchSelected,
-                    isAvailable: parent.isDeepResearchAvailable,
-                    action: #selector(toggleDeepResearch(_:))
-                ))
-            }
-
-            if parent.onOpenKits != nil || parent.onOpenCapabilities != nil {
-                menu.addItem(.separator())
-            }
-
-            if parent.onOpenKits != nil {
-                let kitsItem = NSMenuItem(
-                    title: "Kits…",
-                    action: #selector(openKits(_:)),
-                    keyEquivalent: ""
-                )
-                kitsItem.target = self
-                kitsItem.image = menuImage("shippingbox", description: "Kits")
-                menu.addItem(kitsItem)
-            }
-
-            if parent.onOpenCapabilities != nil {
-                let capabilitiesItem = NSMenuItem(
-                    title: "Add to chat…",
-                    action: #selector(openCapabilities(_:)),
-                    keyEquivalent: ""
-                )
-                capabilitiesItem.target = self
-                capabilitiesItem.image = menuImage("square.grid.2x2", description: "Add to chat")
-                menu.addItem(capabilitiesItem)
-            }
-
-            return menu
-        }
-
-        @objc private func attachImages(_ sender: NSMenuItem) {
-            parent.onAttachImages()
-        }
-
-        @objc private func pasteImage(_ sender: NSMenuItem) {
-            parent.onPasteImage()
-        }
-
-        @objc private func captureScreenshot(_ sender: NSMenuItem) {
-            parent.onCaptureScreenshot()
-        }
-
-        @objc private func toggleWebSearch(_ sender: NSMenuItem) {
-            parent.onToggleWebSearch()
-        }
-
-        @objc private func toggleDeepResearch(_ sender: NSMenuItem) {
-            parent.onToggleDeepResearch()
-        }
-
-        @objc private func openKits(_ sender: NSMenuItem) {
-            parent.onOpenKits?()
-        }
-
-        @objc private func openCapabilities(_ sender: NSMenuItem) {
-            parent.onOpenCapabilities?()
-        }
-
-        private func menuImage(_ systemName: String, description: String) -> NSImage? {
-            NSImage(
-                systemSymbolName: systemName,
-                accessibilityDescription: description
-            )?.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-            )
-        }
-
-        private func capabilityItem(
-            title: String,
-            systemName: String,
-            isSelected: Bool,
-            isAvailable: Bool,
-            action: Selector
-        ) -> NSMenuItem {
-            let item = NSMenuItem(
-                title: isAvailable ? title : "\(title) — Set up Browsing",
-                action: action,
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.image = menuImage(systemName, description: title)
-            item.state = isSelected ? .on : .off
-            item.isEnabled = true
-            return item
-        }
-
+        return isHovering ? Color.primary.opacity(0.07) : .clear
     }
 }
 
