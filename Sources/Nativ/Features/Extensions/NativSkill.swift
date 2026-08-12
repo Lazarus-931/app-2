@@ -61,6 +61,10 @@ extension NativSkill {
         instructions: """
         You are conducting source-grounded research for the user.
 
+        The only tools available in this mode are web_search and web_read. Do not call any \
+        other tool (for example image generation); requests for unavailable tools are rejected \
+        and waste a turn.
+
         Use web_search to discover sources and web_read to inspect the strongest ones. Pass the \
         current research question as web_read's focus. Search results are leads; do not treat a \
         snippet as verified evidence when the source can be read.

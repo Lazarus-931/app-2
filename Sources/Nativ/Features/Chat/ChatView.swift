@@ -1422,27 +1422,26 @@ final class ChatViewModel: ObservableObject {
             for (index, toolCall) in toolCalls.enumerated() {
                 try Task.checkCancellation()
                 let toolMessageID = UUID()
-                let initialToolStatus: ChatTranscriptMessage.ToolStatus = switch toolCall.function?.name {
-                case ChatImageToolRegistry.generateToolName,
-                     ChatImageToolRegistry.editToolName: .preparing
-                default: .running
-                }
-                guard insertToolMessage(
-                    id: toolMessageID,
-                    call: toolCall,
-                    after: insertionAnchor,
-                    in: queuedRequest.sessionID,
-                    status: initialToolStatus,
-                    activityContext: queuedRequest.activityContext
-                ) else {
-                    throw NativChatError.invalidResponse
-                }
-                insertionAnchor = toolMessageID
 
+                // Resolve the route before showing any progress affordance, so a
+                // tool the model wasn't offered (e.g. a stray image_generate call
+                // during deep research) never flashes as "preparing" before being
+                // rejected — it appears as an immediately failed, unavailable call.
                 guard let toolName = toolCall.function?.name,
                       let executionRoute = preparedRequest.executionRoutes[toolName]
                 else {
                     let unavailablePayload = #"{"ok":false,"error":"This tool is not available in this chat."}"#
+                    guard insertToolMessage(
+                        id: toolMessageID,
+                        call: toolCall,
+                        after: insertionAnchor,
+                        in: queuedRequest.sessionID,
+                        status: .failed,
+                        activityContext: queuedRequest.activityContext
+                    ) else {
+                        throw NativChatError.invalidResponse
+                    }
+                    insertionAnchor = toolMessageID
                     updateToolMessage(
                         toolMessageID,
                         in: queuedRequest.sessionID,
@@ -1459,6 +1458,23 @@ final class ChatViewModel: ObservableObject {
                     )
                     continue
                 }
+
+                let initialToolStatus: ChatTranscriptMessage.ToolStatus = switch toolName {
+                case ChatImageToolRegistry.generateToolName,
+                     ChatImageToolRegistry.editToolName: .preparing
+                default: .running
+                }
+                guard insertToolMessage(
+                    id: toolMessageID,
+                    call: toolCall,
+                    after: insertionAnchor,
+                    in: queuedRequest.sessionID,
+                    status: initialToolStatus,
+                    activityContext: queuedRequest.activityContext
+                ) else {
+                    throw NativChatError.invalidResponse
+                }
+                insertionAnchor = toolMessageID
 
                 let customTool: CustomTool? = if case .custom(let id) = executionRoute {
                     queuedRequest.settings.customTools.first { $0.id == id }
