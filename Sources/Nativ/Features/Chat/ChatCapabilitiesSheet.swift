@@ -51,7 +51,7 @@ struct ChatCapabilitiesSheet: View {
 
     private func capabilityRow(_ item: ChatCapabilityItem) -> some View {
         let isSelected = chat.isCapabilitySelected(item.reference)
-        Button {
+        return Button {
             chat.toggleCapability(item.reference)
         } label: {
             HStack(spacing: 12) {
