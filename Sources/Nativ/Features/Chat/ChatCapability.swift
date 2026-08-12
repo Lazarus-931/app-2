@@ -90,7 +90,7 @@ enum ChatCapabilityCatalog {
     static func kits(settings: NativSettings) -> [ChatCapabilityItem] {
         NativKit.all.map {
             let snapshot = kitSnapshot($0, settings: settings)
-            ChatCapabilityItem(
+            return ChatCapabilityItem(
                 reference: .kit(snapshot),
                 title: $0.name,
                 detail: $0.summary,
