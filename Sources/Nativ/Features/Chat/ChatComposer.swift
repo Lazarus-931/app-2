@@ -143,6 +143,32 @@ struct ChatComposer: View {
             }
 
             VStack(alignment: .leading, spacing: 0) {
+                if hasSelectedBrowsingCapability {
+                    HStack(spacing: 12) {
+                        if viewModel.isCapabilitySelected(webSearchReference) {
+                            ChatComposerCapabilityChip(
+                                title: "Web Search",
+                                systemName: "globe"
+                            ) {
+                                viewModel.toggleCapability(webSearchReference)
+                            }
+                        }
+
+                        if viewModel.isCapabilitySelected(deepResearchReference) {
+                            ChatComposerCapabilityChip(
+                                title: "Deep Research",
+                                systemName: "sparkles"
+                            ) {
+                                viewModel.toggleCapability(deepResearchReference)
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                }
+
                 ZStack(alignment: .topLeading) {
                     ChatComposerTextEditor(
                         text: $viewModel.draft,
@@ -352,6 +378,11 @@ struct ChatComposer: View {
         .capability(.skill(NativSkill.deepResearchID))
     }
 
+    private var hasSelectedBrowsingCapability: Bool {
+        viewModel.isCapabilitySelected(webSearchReference)
+            || viewModel.isCapabilitySelected(deepResearchReference)
+    }
+
     private func refreshBrowsingAvailability() {
         isWebSearchAvailable = ChatWebSearchToolRegistry.isConfigured()
         isDeepResearchAvailable = ChatToolRegistry.areConfigured(
@@ -380,6 +411,7 @@ struct ChatComposer: View {
     ) {
         if isAvailable || isSelected {
             viewModel.toggleCapability(reference)
+            showsAddPanel = false
         } else {
             pendingBrowsingCapability = reference
             browsingSettingsCapability = setupCapability
@@ -1348,13 +1380,11 @@ struct ChatComposerActionPanel: View {
                             title: "Web Search",
                             detail: capabilityDetail(
                                 provider: webSearchProviderLabel,
-                                isSelected: isWebSearchSelected,
                                 isAvailable: isWebSearchAvailable,
                                 setupPrompt: "Set up a search provider"
                             ),
                             systemName: "globe",
                             isSelected: isWebSearchSelected,
-                            showsToggle: isWebSearchAvailable || isWebSearchSelected,
                             showsDisclosure: !isWebSearchAvailable && !isWebSearchSelected,
                             action: onToggleWebSearch
                         )
@@ -1363,13 +1393,11 @@ struct ChatComposerActionPanel: View {
                             title: "Deep Research",
                             detail: capabilityDetail(
                                 provider: deepResearchProviderLabel,
-                                isSelected: isDeepResearchSelected,
                                 isAvailable: isDeepResearchAvailable,
                                 setupPrompt: "Set up search and page reading"
                             ),
                             systemName: "sparkles",
                             isSelected: isDeepResearchSelected,
-                            showsToggle: isDeepResearchAvailable || isDeepResearchSelected,
                             showsDisclosure: !isDeepResearchAvailable && !isDeepResearchSelected,
                             action: onToggleDeepResearch
                         )
@@ -1407,17 +1435,13 @@ struct ChatComposerActionPanel: View {
 
     private func capabilityDetail(
         provider: String?,
-        isSelected: Bool,
         isAvailable: Bool,
         setupPrompt: String
     ) -> String {
         if isAvailable {
-            let state = isSelected ? "On" : "Off"
-            return [provider, "\(state) for this chat"]
-                .compactMap { $0 }
-                .joined(separator: " · ")
+            return provider ?? "Ready"
         }
-        return isSelected ? "On for this chat · Provider needs setup" : setupPrompt
+        return setupPrompt
     }
 
     private func section<Content: View>(
@@ -1442,7 +1466,6 @@ private struct ChatComposerActionRow: View {
     let detail: String
     let systemName: String
     var isSelected = false
-    var showsToggle = false
     var showsDisclosure = false
     let action: () -> Void
 
@@ -1469,14 +1492,7 @@ private struct ChatComposerActionRow: View {
 
                 Spacer(minLength: 12)
 
-                if showsToggle {
-                    Toggle("", isOn: .constant(isSelected))
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
-                } else if isSelected {
+                if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
@@ -1497,7 +1513,7 @@ private struct ChatComposerActionRow: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityValue(showsToggle ? (isSelected ? "On" : "Off") : "")
+        .accessibilityValue(isSelected ? "Selected" : "")
         .animation(.easeOut(duration: 0.12), value: isHovering)
         .animation(.easeOut(duration: 0.12), value: isSelected)
     }
@@ -1507,6 +1523,39 @@ private struct ChatComposerActionRow: View {
             return Color.accentColor.opacity(isHovering ? 0.15 : 0.10)
         }
         return isHovering ? Color.primary.opacity(0.07) : .clear
+    }
+}
+
+private struct ChatComposerCapabilityChip: View {
+    let title: String
+    let systemName: String
+    let onRemove: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onRemove) {
+            HStack(spacing: 6) {
+                Image(systemName: systemName)
+                Text(title)
+
+                if isHovering {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .semibold))
+                        .transition(.opacity)
+                }
+            }
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 2)
+            .frame(height: 24)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .help("Remove \(title) from this chat")
+        .accessibilityLabel("Remove \(title) from this chat")
+        .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 }
 
