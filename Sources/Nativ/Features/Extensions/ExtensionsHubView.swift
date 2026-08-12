@@ -197,6 +197,7 @@ private struct ExtensionsSectionView: View {
 private struct BrowsingExtensionRow: View {
     let record: NativExtensionRecord
     let onConfigure: () -> Void
+    @State private var configurationRevision = 0
 
     var body: some View {
         let status = configurationStatus
@@ -234,9 +235,13 @@ private struct BrowsingExtensionRow: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .webBrowsingConfigurationDidChange)) { _ in
+            configurationRevision &+= 1
+        }
     }
 
     private var configurationStatus: BrowsingConfigurationStatus {
+        _ = configurationRevision
         let preferences = WebBrowsingPreferences()
         let routedProviders = [
             preferences.provider(for: .search),

@@ -20,7 +20,8 @@ struct WebBrowsingRuntime {
 
     func isConfigured(_ capability: WebBrowsingCapability) -> Bool {
         guard let provider = preferences.provider(for: capability) else { return false }
-        return (try? credentials.load(for: provider)) != nil
+        return preferences.credentialIssue(for: provider) == nil
+            && (try? credentials.load(for: provider)) != nil
     }
 
     func search(query: String, limit: Int) async throws -> [WebSearchResult] {
@@ -71,12 +72,18 @@ struct WebBrowsingRuntime {
         do {
             let value = try await operation()
             preferences.setCredentialIssue(nil, for: provider)
+            notifyConfigurationChanged()
             return value
         } catch {
             if let issue = (error as? WebBrowsingError)?.credentialIssue {
                 preferences.setCredentialIssue(issue, for: provider)
+                notifyConfigurationChanged()
             }
             throw error
         }
+    }
+
+    private func notifyConfigurationChanged() {
+        NotificationCenter.default.post(name: .webBrowsingConfigurationDidChange, object: nil)
     }
 }

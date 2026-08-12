@@ -38,7 +38,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
         selectedProvider = preferences.searchProvider
         searchProvider = preferences.searchProvider
         pageReaderProvider = preferences.pageReaderProvider
-        loadConnectionStates()
+        refreshConnectionStates()
     }
 
     var selectedConnectionState: ConnectionState {
@@ -152,7 +152,8 @@ final class WebSearchSettingsViewModel: ObservableObject {
         }
     }
 
-    private func loadConnectionStates() {
+    func refreshConnectionStates() {
+        connectionStates.removeAll(keepingCapacity: true)
         for provider in WebSearchProvider.allCases {
             do {
                 guard try credentials.load(for: provider) != nil else {
@@ -213,6 +214,9 @@ struct WebSearchSettingsView: View {
                 .frame(width: 270)
             keySetup
                 .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .webBrowsingConfigurationDidChange)) { _ in
+            viewModel.refreshConnectionStates()
         }
     }
 
