@@ -215,7 +215,7 @@ private struct KitDetailView: View {
             ForEach(kit.mcpEntries) { entry in
                 KitPartRow(
                     symbol: entry.symbol,
-                    tint: entry.tint,
+                    tint: .nativTint(entry.tintName),
                     logoAssetName: entry.logoAssetName,
                     title: entry.name,
                     subtitle: entry.summary,

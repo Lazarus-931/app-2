@@ -1,4 +1,3 @@
-import NativServerKit
 import SwiftUI
 
 // A Kit is a ready-made setup: a curated bundle of MCP servers, skills, and
@@ -17,7 +16,7 @@ struct NativKit: Identifiable {
 
     /// Catalog MCP entries this kit references, in listed order.
     var mcpEntries: [MCPCatalogEntry] {
-        mcpServerIDs.compactMap { id in MCPCatalogEntry.catalog.first { $0.id == id } }
+        mcpServerIDs.compactMap { MCPServerCatalog.bundled.entry(id: $0) }
     }
 
     var builtInTools: [ChatNativeToolDescriptor] {
@@ -117,11 +116,12 @@ enum NativKitSetup {
         model: NativModel,
         manager: NativExtensionManager
     ) {
+        let catalog = MCPServerCatalog.bundled
+        var servers = model.settings.mcpServers
         for entry in kit.mcpEntries {
-            if matchingServerIndex(for: entry, in: model.settings.mcpServers) == nil {
-                model.settings.mcpServers.append(entry.makeConfig())
-            }
+            catalog.setEnabled(true, for: entry, in: &servers)
         }
+        model.settings.mcpServers = servers
 
         for skill in kit.skills where !skill.isChatBuiltIn {
             if !model.settings.skills.contains(where: { $0.id == skill.id }) {
@@ -179,5 +179,4 @@ enum NativKitSetup {
     ) -> Int? {
         servers.firstIndex { $0.command == entry.command && $0.arguments == entry.arguments }
     }
-
 }
