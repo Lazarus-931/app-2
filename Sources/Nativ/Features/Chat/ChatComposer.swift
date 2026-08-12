@@ -97,8 +97,11 @@ struct ChatComposer: View {
     @State private var showsAddPanel = false
     @State private var showsBrowsingSettings = false
     @State private var browsingSettingsCapability = WebBrowsingCapability.search
+    @State private var pendingBrowsingCapability: ChatCapabilityReference?
     @State private var isWebSearchAvailable = false
     @State private var isDeepResearchAvailable = false
+    @State private var webSearchProviderLabel: String?
+    @State private var deepResearchProviderLabel: String?
     @State private var composerWidth: CGFloat = 410
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
     private let editorMinimumHeight: CGFloat = 64
@@ -257,6 +260,7 @@ struct ChatComposer: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .webBrowsingConfigurationDidChange)) { _ in
             refreshBrowsingAvailability()
+            enablePendingBrowsingCapabilityIfReady()
         }
         .onReceive(NotificationCenter.default.publisher(for: .localModelLibraryDidChange)) { _ in
             localLibrary.scan(searchPaths: model.settings.localModelSearchPaths)
@@ -286,6 +290,11 @@ struct ChatComposer: View {
         .sheet(isPresented: $showsBrowsingSettings) {
             BrowsingSettingsSheet(initialCapability: browsingSettingsCapability)
         }
+        .onChange(of: showsBrowsingSettings) { _, isPresented in
+            if !isPresented {
+                pendingBrowsingCapability = nil
+            }
+        }
     }
 
     private var addPanel: some View {
@@ -294,30 +303,28 @@ struct ChatComposer: View {
             showsBrowsingCapabilities: true,
             isWebSearchSelected: viewModel.isCapabilitySelected(webSearchReference),
             isWebSearchAvailable: isWebSearchAvailable,
+            webSearchProviderLabel: webSearchProviderLabel,
             isDeepResearchSelected: viewModel.isCapabilitySelected(deepResearchReference),
             isDeepResearchAvailable: isDeepResearchAvailable,
+            deepResearchProviderLabel: deepResearchProviderLabel,
             onAttachImages: { dismissAddPanelAndPerform(viewModel.chooseImageAttachments) },
             onPasteImage: { dismissAddPanelAndPerform(viewModel.pasteImageFromClipboard) },
             onCaptureScreenshot: { dismissAddPanelAndPerform(viewModel.captureScreenshot) },
             onToggleWebSearch: {
-                dismissAddPanelAndPerform {
-                    toggleBrowsingCapability(
-                        webSearchReference,
-                        isSelected: viewModel.isCapabilitySelected(webSearchReference),
-                        isAvailable: isWebSearchAvailable,
-                        setupCapability: .search
-                    )
-                }
+                toggleBrowsingCapability(
+                    webSearchReference,
+                    isSelected: viewModel.isCapabilitySelected(webSearchReference),
+                    isAvailable: isWebSearchAvailable,
+                    setupCapability: .search
+                )
             },
             onToggleDeepResearch: {
-                dismissAddPanelAndPerform {
-                    toggleBrowsingCapability(
-                        deepResearchReference,
-                        isSelected: viewModel.isCapabilitySelected(deepResearchReference),
-                        isAvailable: isDeepResearchAvailable,
-                        setupCapability: .read
-                    )
-                }
+                toggleBrowsingCapability(
+                    deepResearchReference,
+                    isSelected: viewModel.isCapabilitySelected(deepResearchReference),
+                    isAvailable: isDeepResearchAvailable,
+                    setupCapability: .read
+                )
             },
             onOpenKits: { dismissAddPanelAndPerform { showsKits = true } },
             onOpenCapabilities: { dismissAddPanelAndPerform { showsCapabilities = true } }
@@ -350,6 +357,19 @@ struct ChatComposer: View {
         isDeepResearchAvailable = ChatToolRegistry.areConfigured(
             NativSkill.deepResearch.requiredBuiltInToolNames
         )
+        let preferences = WebBrowsingPreferences()
+        webSearchProviderLabel = isWebSearchAvailable
+            ? preferences.searchProvider.metadata.displayName
+            : nil
+        if isDeepResearchAvailable,
+           let reader = preferences.provider(for: .read) {
+            let search = preferences.searchProvider
+            deepResearchProviderLabel = search == reader
+                ? search.metadata.displayName
+                : "\(search.metadata.displayName) + \(reader.metadata.displayName)"
+        } else {
+            deepResearchProviderLabel = nil
+        }
     }
 
     private func toggleBrowsingCapability(
@@ -361,8 +381,32 @@ struct ChatComposer: View {
         if isAvailable || isSelected {
             viewModel.toggleCapability(reference)
         } else {
+            pendingBrowsingCapability = reference
             browsingSettingsCapability = setupCapability
-            showsBrowsingSettings = true
+            dismissAddPanelAndPerform {
+                showsBrowsingSettings = true
+            }
+        }
+    }
+
+    private func enablePendingBrowsingCapabilityIfReady() {
+        guard let pendingBrowsingCapability,
+              browsingCapabilityIsAvailable(browsingSettingsCapability) else {
+            return
+        }
+        if !viewModel.isCapabilitySelected(pendingBrowsingCapability) {
+            viewModel.toggleCapability(pendingBrowsingCapability)
+        }
+        self.pendingBrowsingCapability = nil
+        showsBrowsingSettings = false
+    }
+
+    private func browsingCapabilityIsAvailable(_ capability: WebBrowsingCapability) -> Bool {
+        switch capability {
+        case .search:
+            ChatWebSearchToolRegistry.isConfigured()
+        case .read:
+            ChatToolRegistry.areConfigured(NativSkill.deepResearch.requiredBuiltInToolNames)
         }
     }
 
@@ -1260,8 +1304,10 @@ struct ChatComposerActionPanel: View {
     var showsBrowsingCapabilities = false
     var isWebSearchSelected = false
     var isWebSearchAvailable = false
+    var webSearchProviderLabel: String?
     var isDeepResearchSelected = false
     var isDeepResearchAvailable = false
+    var deepResearchProviderLabel: String?
     let onAttachImages: () -> Void
     let onPasteImage: () -> Void
     let onCaptureScreenshot: () -> Void
@@ -1300,23 +1346,31 @@ struct ChatComposerActionPanel: View {
                     if showsBrowsingCapabilities {
                         ChatComposerActionRow(
                             title: "Web Search",
-                            detail: isWebSearchAvailable
-                                ? "Find current information online"
-                                : "Set up a search provider",
+                            detail: capabilityDetail(
+                                provider: webSearchProviderLabel,
+                                isSelected: isWebSearchSelected,
+                                isAvailable: isWebSearchAvailable,
+                                setupPrompt: "Set up a search provider"
+                            ),
                             systemName: "globe",
                             isSelected: isWebSearchSelected,
-                            showsDisclosure: !isWebSearchAvailable,
+                            showsToggle: isWebSearchAvailable || isWebSearchSelected,
+                            showsDisclosure: !isWebSearchAvailable && !isWebSearchSelected,
                             action: onToggleWebSearch
                         )
 
                         ChatComposerActionRow(
                             title: "Deep Research",
-                            detail: isDeepResearchAvailable
-                                ? "Search and read multiple sources"
-                                : "Set up search and page reading",
+                            detail: capabilityDetail(
+                                provider: deepResearchProviderLabel,
+                                isSelected: isDeepResearchSelected,
+                                isAvailable: isDeepResearchAvailable,
+                                setupPrompt: "Set up search and page reading"
+                            ),
                             systemName: "sparkles",
                             isSelected: isDeepResearchSelected,
-                            showsDisclosure: !isDeepResearchAvailable,
+                            showsToggle: isDeepResearchAvailable || isDeepResearchSelected,
+                            showsDisclosure: !isDeepResearchAvailable && !isDeepResearchSelected,
                             action: onToggleDeepResearch
                         )
                     }
@@ -1351,6 +1405,21 @@ struct ChatComposerActionPanel: View {
         .frame(maxHeight: 420)
     }
 
+    private func capabilityDetail(
+        provider: String?,
+        isSelected: Bool,
+        isAvailable: Bool,
+        setupPrompt: String
+    ) -> String {
+        if isAvailable {
+            let state = isSelected ? "On" : "Off"
+            return [provider, "\(state) for this chat"]
+                .compactMap { $0 }
+                .joined(separator: " · ")
+        }
+        return isSelected ? "On for this chat · Provider needs setup" : setupPrompt
+    }
+
     private func section<Content: View>(
         _ title: String,
         @ViewBuilder content: () -> Content
@@ -1373,6 +1442,7 @@ private struct ChatComposerActionRow: View {
     let detail: String
     let systemName: String
     var isSelected = false
+    var showsToggle = false
     var showsDisclosure = false
     let action: () -> Void
 
@@ -1399,7 +1469,14 @@ private struct ChatComposerActionRow: View {
 
                 Spacer(minLength: 12)
 
-                if isSelected {
+                if showsToggle {
+                    Toggle("", isOn: .constant(isSelected))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                } else if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
@@ -1420,6 +1497,7 @@ private struct ChatComposerActionRow: View {
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityValue(showsToggle ? (isSelected ? "On" : "Off") : "")
         .animation(.easeOut(duration: 0.12), value: isHovering)
         .animation(.easeOut(duration: 0.12), value: isSelected)
     }

@@ -104,6 +104,24 @@ final class ChatCapabilitySelectionTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testDeepResearchDoesNotAdvertiseAutomaticImageTools() {
+        let selection = ChatCapabilitySelection(
+            included: [.skill(NativSkill.deepResearchID)]
+        )
+
+        let resolved = ChatCapabilityResolver.resolve(
+            selection: selection,
+            settings: NativSettings(),
+            mcpHost: nil,
+            canEditImage: true
+        )
+        let toolNames = Set(resolved.toolDefinitions.map(\.function.name))
+
+        XCTAssertFalse(toolNames.contains(ChatImageToolRegistry.generateToolName))
+        XCTAssertFalse(toolNames.contains(ChatImageToolRegistry.editToolName))
+    }
+
     func testEditedDeepResearchOverrideWinsOverTheBundledDefinition() {
         var override = NativSkill.deepResearch
         override.name = "My Research"

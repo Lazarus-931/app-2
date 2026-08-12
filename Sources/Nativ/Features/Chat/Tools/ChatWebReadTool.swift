@@ -138,7 +138,7 @@ private struct WebReadFailure {
                 let providers = WebSearchProvider.pageReaders
                     .map(\.metadata.displayName)
                     .joined(separator: ", ")
-                userActionRequired = "Ask the user to choose a page reader in Extensions → Browsing. Available providers: \(providers)."
+                userActionRequired = "Ask the user to configure Web Read in Extensions → Tools. Available providers: \(providers)."
             case .invalidArguments, .invalidURL, .unsupportedProvider, .pageUnavailable, .unexpectedFailure:
                 userActionRequired = nil
             }
@@ -179,9 +179,9 @@ private extension WebBrowsingError {
     var webReadUserActionRequired: String? {
         switch code {
         case .missingAPIKey:
-            "Ask the user to configure the selected provider in Extensions → Browsing."
+            "Ask the user to configure Web Read in Extensions → Tools."
         case .invalidAuthentication, .credentialAccess:
-            "Ask the user to reconnect the selected provider in Extensions → Browsing."
+            "Ask the user to reconnect Web Read in Extensions → Tools."
         case .insufficientFunds:
             "Ask the user to add credits or resolve billing with the selected provider."
         case .planAccess:

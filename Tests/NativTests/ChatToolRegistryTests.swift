@@ -93,9 +93,10 @@ final class ChatToolRegistryTests: XCTestCase {
 
         XCTAssertEqual(descriptor?.configuration, .webRead)
         XCTAssertEqual(descriptor?.configuration?.displayName, "Web Read")
-        XCTAssertFalse(descriptor?.isUserSelectable ?? true)
+        XCTAssertTrue(descriptor?.isUserSelectable ?? false)
         XCTAssertFalse(descriptor?.isSelected(by: []) ?? true)
-        XCTAssertTrue(descriptor?.isSelected(by: [ChatWebSearchToolRegistry.toolName]) ?? false)
+        XCTAssertFalse(descriptor?.isSelected(by: [ChatWebSearchToolRegistry.toolName]) ?? true)
+        XCTAssertTrue(descriptor?.isSelected(by: [ChatWebReadToolRegistry.toolName]) ?? false)
     }
 
     func testOnlyImageToolsAreAvailableWithoutChatSelection() {

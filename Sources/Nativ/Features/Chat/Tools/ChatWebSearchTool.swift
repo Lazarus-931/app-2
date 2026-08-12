@@ -122,9 +122,9 @@ private extension WebBrowsingError {
     var webSearchUserActionRequired: String? {
         switch code {
         case .missingAPIKey:
-            "Ask the user to add a search API key in Extensions → Browsing, then retry \(ChatWebSearchToolRegistry.toolName)."
+            "Ask the user to configure Web Search in Extensions → Tools, then retry \(ChatWebSearchToolRegistry.toolName)."
         case .invalidAuthentication, .credentialAccess:
-            "Ask the user to reconnect the search API key in Extensions → Browsing, then retry \(ChatWebSearchToolRegistry.toolName)."
+            "Ask the user to reconnect Web Search in Extensions → Tools, then retry \(ChatWebSearchToolRegistry.toolName)."
         case .insufficientFunds:
             "Ask the user to add credits or resolve billing with the selected search provider."
         case .planAccess:

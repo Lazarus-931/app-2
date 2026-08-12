@@ -95,7 +95,6 @@ struct ChatNativeToolDescriptor {
     enum Selection {
         case explicit
         case automatic
-        case companion(of: String)
     }
 
     let definition: MLXChatToolDefinition
@@ -118,8 +117,6 @@ struct ChatNativeToolDescriptor {
             true
         case .explicit:
             toolNames.contains(definition.function.name)
-        case .companion(let parentToolName):
-            toolNames.contains(parentToolName)
         }
     }
 
@@ -161,8 +158,7 @@ enum ChatToolRegistry {
         ))
         tools.append(ChatNativeToolDescriptor(
             definition: ChatWebReadToolRegistry.definition,
-            configuration: .webRead,
-            selection: .companion(of: ChatWebSearchToolRegistry.toolName)
+            configuration: .webRead
         ))
         return tools
     }
