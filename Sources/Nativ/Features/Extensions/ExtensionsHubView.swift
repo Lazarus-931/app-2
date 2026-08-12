@@ -287,6 +287,11 @@ private enum BrowsingConfigurationStatus {
 
 struct BrowsingSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    let initialCapability: WebBrowsingCapability
+
+    init(initialCapability: WebBrowsingCapability = .search) {
+        self.initialCapability = initialCapability
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -296,7 +301,10 @@ struct BrowsingSettingsSheet: View {
                 Spacer()
                 NativHoverCloseButton { dismiss() }
             }
-            WebSearchSettingsView()
+            WebBrowsingSettingsView(
+                initialCapability: initialCapability,
+                showsCapabilityPicker: true
+            )
         }
         .padding(20)
         .frame(width: 720)

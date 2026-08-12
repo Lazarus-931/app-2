@@ -95,6 +95,7 @@ struct ChatComposer: View {
     @State private var showsKits = false
     @State private var showsCapabilities = false
     @State private var showsBrowsingSettings = false
+    @State private var browsingSettingsCapability = WebBrowsingCapability.search
     @State private var isWebSearchAvailable = false
     @State private var isDeepResearchAvailable = false
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
@@ -207,14 +208,16 @@ struct ChatComposer: View {
                             toggleBrowsingCapability(
                                 webSearchReference,
                                 isSelected: viewModel.isCapabilitySelected(webSearchReference),
-                                isAvailable: isWebSearchAvailable
+                                isAvailable: isWebSearchAvailable,
+                                setupCapability: .search
                             )
                         },
                         onToggleDeepResearch: {
                             toggleBrowsingCapability(
                                 deepResearchReference,
                                 isSelected: viewModel.isCapabilitySelected(deepResearchReference),
-                                isAvailable: isDeepResearchAvailable
+                                isAvailable: isDeepResearchAvailable,
+                                setupCapability: .read
                             )
                         },
                         onOpenKits: { showsKits = true },
@@ -298,7 +301,7 @@ struct ChatComposer: View {
             ChatCapabilitiesSheet(model: model, chat: viewModel)
         }
         .sheet(isPresented: $showsBrowsingSettings) {
-            BrowsingSettingsSheet()
+            BrowsingSettingsSheet(initialCapability: browsingSettingsCapability)
         }
     }
 
@@ -324,11 +327,13 @@ struct ChatComposer: View {
     private func toggleBrowsingCapability(
         _ reference: ChatCapabilityReference,
         isSelected: Bool,
-        isAvailable: Bool
+        isAvailable: Bool,
+        setupCapability: WebBrowsingCapability
     ) {
         if isAvailable || isSelected {
             viewModel.toggleCapability(reference)
         } else {
+            browsingSettingsCapability = setupCapability
             showsBrowsingSettings = true
         }
     }

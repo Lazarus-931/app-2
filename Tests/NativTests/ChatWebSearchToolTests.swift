@@ -218,6 +218,7 @@ final class ChatWebSearchToolTests: XCTestCase {
             XCTFail("Expected the rejected credential to fail")
         } catch {}
         XCTAssertEqual(preferences.credentialIssue(for: .brave), .invalidAuthentication)
+        XCTAssertFalse(rejectedRuntime.isConfigured(.search))
 
         let acceptedRuntime = WebBrowsingRuntime(
             credentials: credentials,
@@ -227,6 +228,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         _ = try await acceptedRuntime.search(query: "Nativ", limit: 1)
 
         XCTAssertNil(preferences.credentialIssue(for: .brave))
+        XCTAssertTrue(acceptedRuntime.isConfigured(.search))
     }
 
     func testMissingKeyFailureTellsTheModelWhereToSendTheUser() async throws {
@@ -343,7 +345,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         preferences.searchProvider = .exa
         let credentials = StubWebSearchCredentialStore(keys: [.exa: "stored-secret"])
 
-        let viewModel = WebSearchSettingsViewModel(
+        let viewModel = WebBrowsingSettingsViewModel(
             preferences: preferences,
             credentials: credentials,
             service: WebSearchService(client: StubWebSearchHTTPClient(response: "{}"))
@@ -361,7 +363,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let preferences = WebBrowsingPreferences(defaults: defaults)
         let credentials = StubWebSearchCredentialStore(keys: [.nimble: "stored-key"])
-        let viewModel = WebSearchSettingsViewModel(
+        let viewModel = WebBrowsingSettingsViewModel(
             preferences: preferences,
             credentials: credentials,
             service: WebSearchService(client: StubWebSearchHTTPClient(response: "{}"))
@@ -409,7 +411,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         let preferences = WebBrowsingPreferences(defaults: defaults)
         let credentials = StubWebSearchCredentialStore()
         let client = StubWebSearchHTTPClient(response: #"{"results":[]}"#)
-        let viewModel = WebSearchSettingsViewModel(
+        let viewModel = WebBrowsingSettingsViewModel(
             preferences: preferences,
             credentials: credentials,
             service: WebSearchService(client: client)
@@ -433,11 +435,14 @@ final class ChatWebSearchToolTests: XCTestCase {
         let preferences = WebBrowsingPreferences(defaults: defaults)
         preferences.searchProvider = .brave
         let credentials = StubWebSearchCredentialStore(keys: [.brave: "brave-key"])
-        let viewModel = WebSearchSettingsViewModel(
+        let viewModel = WebBrowsingSettingsViewModel(
+            initialCapability: .read,
             preferences: preferences,
             credentials: credentials,
             service: WebSearchService(client: StubWebSearchHTTPClient(response: #"{"results":[]}"#))
         )
+        XCTAssertEqual(viewModel.selectedProvider, .exa)
+        XCTAssertEqual(viewModel.availableProviders, WebSearchProvider.pageReaders)
         viewModel.select(.exa)
         viewModel.draftAPIKey = "exa-key"
 
@@ -457,7 +462,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         preferences.searchProvider = .brave
         let credentials = StubWebSearchCredentialStore(keys: [.brave: "working-key"])
         let client = StubWebSearchHTTPClient(response: "{}", statusCode: 401)
-        let viewModel = WebSearchSettingsViewModel(
+        let viewModel = WebBrowsingSettingsViewModel(
             preferences: preferences,
             credentials: credentials,
             service: WebSearchService(client: client)

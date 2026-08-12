@@ -39,9 +39,16 @@ struct ToolsSectionView: View {
         }
         .sheet(item: $inspecting) { tool in
             switch tool.configuration {
-            case .webSearch, .webRead:
-                WebSearchToolConfigurationView(
+            case .webSearch:
+                BrowsingToolConfigurationView(
                     toolName: tool.title,
+                    capability: .search,
+                    onConfigurationChanged: { _ in }
+                )
+            case .webRead:
+                BrowsingToolConfigurationView(
+                    toolName: tool.title,
+                    capability: .read,
                     onConfigurationChanged: { _ in }
                 )
             case nil:
@@ -257,8 +264,9 @@ private struct ToolRow: View {
     }
 }
 
-private struct WebSearchToolConfigurationView: View {
+private struct BrowsingToolConfigurationView: View {
     let toolName: String
+    let capability: WebBrowsingCapability
     let onConfigurationChanged: (Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -268,7 +276,11 @@ private struct WebSearchToolConfigurationView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(toolName)
                         .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                    Text("Choose providers for web search and page reading.")
+                    Text(
+                        capability == .search
+                            ? "Choose the provider used for web search."
+                            : "Choose the provider used to read source pages."
+                    )
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
@@ -281,7 +293,8 @@ private struct WebSearchToolConfigurationView: View {
                 .foregroundStyle(.secondary)
             }
 
-            WebSearchSettingsView(
+            WebBrowsingSettingsView(
+                initialCapability: capability,
                 onConfigurationChanged: onConfigurationChanged
             )
         }

@@ -6,7 +6,7 @@ extension Notification.Name {
     )
 }
 
-enum WebBrowsingCapability: Sendable {
+enum WebBrowsingCapability: Hashable, Sendable {
     case search
     case read
 }
