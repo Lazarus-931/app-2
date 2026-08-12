@@ -3,15 +3,17 @@ import NativServerKit
 
 enum ChatWebReadToolRegistry {
     static let toolName = "web_read"
-    static let maximumURLs = 4
-    static let maximumFocusLength = 500
+    static let maximumURLs = WebReadService.maximumURLs
+    static let maximumFocusLength = WebReadService.maximumFocusLength
 
     static func isConfigured(
         credentials: any WebSearchCredentialStoring = KeychainWebSearchCredentialStore(),
         preferences: WebBrowsingPreferences = WebBrowsingPreferences()
     ) -> Bool {
-        guard let provider = preferences.provider(for: .read) else { return false }
-        return (try? credentials.load(for: provider)) != nil
+        WebBrowsingRuntime(
+            credentials: credentials,
+            preferences: preferences
+        ).isConfigured(.read)
     }
 
     static let definition = MLXChatToolDefinition(function: MLXChatFunctionDefinition(
@@ -41,18 +43,18 @@ enum ChatWebReadToolRegistry {
 }
 
 struct ChatWebReadToolExecutor {
-    private let credentials: any WebSearchCredentialStoring
-    private let preferences: WebBrowsingPreferences
-    private let service: WebReadService
+    private let runtime: WebBrowsingRuntime
 
     init(
         credentials: any WebSearchCredentialStoring = KeychainWebSearchCredentialStore(),
         preferences: WebBrowsingPreferences = WebBrowsingPreferences(),
-        service: WebReadService = WebReadService()
+        client: any WebBrowsingHTTPClient = URLSessionWebBrowsingHTTPClient()
     ) {
-        self.credentials = credentials
-        self.preferences = preferences
-        self.service = service
+        runtime = WebBrowsingRuntime(
+            credentials: credentials,
+            preferences: preferences,
+            client: client
+        )
     }
 
     func execute(call: MLXChatToolCall) async throws -> String {
@@ -68,37 +70,11 @@ struct ChatWebReadToolExecutor {
             throw WebReadError.invalidArguments
         }
 
-        guard let provider = preferences.provider(for: .read) else {
-            throw WebReadError.pageReaderNotConfigured(preferences.searchProvider)
-        }
-
-        let apiKey: String
-        do {
-            guard let storedKey = try credentials.load(for: provider) else {
-                throw WebBrowsingError.missingAPIKey(provider)
-            }
-            apiKey = storedKey
-        } catch let error as WebBrowsingError {
-            throw error
-        } catch {
-            throw WebBrowsingError.credentialAccess(provider)
-        }
-
-        do {
-            let pages = try await service.read(
-                provider: provider,
-                apiKey: apiKey,
-                urls: arguments.urls,
-                focus: focus?.isEmpty == false ? focus : nil
-            )
-            preferences.setCredentialIssue(nil, for: provider)
-            return try encoded(WebReadToolSuccessPayload(pages: pages))
-        } catch {
-            if let issue = credentialIssue(for: error) {
-                preferences.setCredentialIssue(issue, for: provider)
-            }
-            throw error
-        }
+        let pages = try await runtime.read(
+            urls: arguments.urls,
+            focus: focus?.isEmpty == false ? focus : nil
+        )
+        return try encoded(WebReadToolSuccessPayload(pages: pages))
     }
 
     func failurePayload(error: Error) -> String {
@@ -113,10 +89,6 @@ struct ChatWebReadToolExecutor {
         )
         return (try? encoded(payload))
             ?? #"{"ok":false,"error":{"code":"unexpected_failure","message":"Web read failed."}}"#
-    }
-
-    private func credentialIssue(for error: Error) -> WebSearchCredentialIssue? {
-        (error as? WebBrowsingError)?.credentialIssue
     }
 
     private func encoded(_ value: some Encodable) throws -> String {

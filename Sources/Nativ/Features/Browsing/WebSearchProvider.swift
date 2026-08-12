@@ -1,5 +1,11 @@
 import Foundation
 
+extension Notification.Name {
+    static let webBrowsingConfigurationDidChange = Notification.Name(
+        "nativ.web-browsing.configuration-did-change"
+    )
+}
+
 enum WebBrowsingCapability: Sendable {
     case search
     case read

@@ -201,6 +201,34 @@ final class ChatWebSearchToolTests: XCTestCase {
         }
     }
 
+    func testRuntimeTracksCredentialHealthAcrossRequests() async throws {
+        let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let preferences = WebBrowsingPreferences(defaults: defaults)
+        let credentials = StubWebSearchCredentialStore(keys: [.brave: "key"])
+        let rejectedRuntime = WebBrowsingRuntime(
+            credentials: credentials,
+            preferences: preferences,
+            client: StubWebSearchHTTPClient(response: "{}", statusCode: 401)
+        )
+
+        do {
+            _ = try await rejectedRuntime.search(query: "Nativ", limit: 1)
+            XCTFail("Expected the rejected credential to fail")
+        } catch {}
+        XCTAssertEqual(preferences.credentialIssue(for: .brave), .invalidAuthentication)
+
+        let acceptedRuntime = WebBrowsingRuntime(
+            credentials: credentials,
+            preferences: preferences,
+            client: StubWebSearchHTTPClient(response: #"{"web":{"results":[]}}"#)
+        )
+        _ = try await acceptedRuntime.search(query: "Nativ", limit: 1)
+
+        XCTAssertNil(preferences.credentialIssue(for: .brave))
+    }
+
     func testMissingKeyFailureTellsTheModelWhereToSendTheUser() async throws {
         let suiteName = "ChatWebSearchToolTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -210,7 +238,7 @@ final class ChatWebSearchToolTests: XCTestCase {
         let executor = ChatWebSearchToolExecutor(
             credentials: StubWebSearchCredentialStore(),
             preferences: preferences,
-            service: WebSearchService(client: StubWebSearchHTTPClient(response: "{}"))
+            client: StubWebSearchHTTPClient(response: "{}")
         )
 
         do {
@@ -243,9 +271,9 @@ final class ChatWebSearchToolTests: XCTestCase {
         let executor = ChatWebSearchToolExecutor(
             credentials: StubWebSearchCredentialStore(keys: [.brave: "key"]),
             preferences: preferences,
-            service: WebSearchService(client: StubWebSearchHTTPClient(
+            client: StubWebSearchHTTPClient(
                 response: #"{"web":{"results":[{"title":"Nativ","url":"https://nativ.dev","description":"Local AI"}]}}"#
-            ))
+            )
         )
 
         let payload = try await executor.execute(call: makeWebSearchCall(query: "Nativ"))

@@ -62,6 +62,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
         searchProvider = provider
         preferences.searchProvider = provider
         select(provider)
+        notifyConfigurationChanged()
     }
 
     func setPageReaderProvider(_ provider: WebSearchProvider?) {
@@ -71,6 +72,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
         if let provider {
             select(provider)
         }
+        notifyConfigurationChanged()
     }
 
     func testAndConnect() async -> Bool {
@@ -105,6 +107,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
                 revealsKey = false
                 status = .connected("Connected to \(provider.metadata.displayName).")
             }
+            notifyConfigurationChanged()
             return true
         } catch {
             if selectedProvider == provider {
@@ -141,6 +144,7 @@ final class WebSearchSettingsViewModel: ObservableObject {
             draftAPIKey = ""
             revealsKey = false
             status = nil
+            notifyConfigurationChanged()
             return true
         } catch {
             status = .failure(error.localizedDescription)
@@ -177,6 +181,10 @@ final class WebSearchSettingsViewModel: ObservableObject {
             false
         }
     }
+
+    private func notifyConfigurationChanged() {
+        NotificationCenter.default.post(name: .webBrowsingConfigurationDidChange, object: nil)
+    }
 }
 
 @MainActor
@@ -200,71 +208,11 @@ struct WebSearchSettingsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            providerRouting
-            HStack(alignment: .top, spacing: 16) {
-                providerPicker
-                    .frame(width: 250)
-                keySetup
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private var providerRouting: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            routeRow("Search provider", selection: Binding(
-                get: { viewModel.searchProvider },
-                set: { viewModel.setSearchProvider($0) }
-            ))
-
-            HStack(spacing: 12) {
-                Text("Page reader")
-                    .font(.system(size: 12, weight: .medium))
-                    .frame(width: 100, alignment: .leading)
-                Picker("", selection: Binding(
-                    get: { viewModel.pageReaderProvider },
-                    set: { viewModel.setPageReaderProvider($0) }
-                )) {
-                    Text("Same as search")
-                        .tag(nil as WebSearchProvider?)
-                    ForEach(WebSearchProvider.pageReaders) { provider in
-                        Text(provider.metadata.displayName)
-                            .tag(provider as WebSearchProvider?)
-                    }
-                }
-                .labelsHidden()
-                .disabled(viewModel.isTesting)
-                Spacer(minLength: 0)
-            }
-
-            if let status = viewModel.pageReaderStatus {
-                Label(status, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
-            }
-        }
-        .padding(12)
-        .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private func routeRow(
-        _ title: String,
-        selection: Binding<WebSearchProvider>
-    ) -> some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-                .frame(width: 100, alignment: .leading)
-            Picker("", selection: selection) {
-                ForEach(WebSearchProvider.allCases) { provider in
-                    Text(provider.metadata.displayName)
-                        .tag(provider)
-                }
-            }
-            .labelsHidden()
-            .disabled(viewModel.isTesting)
-            Spacer(minLength: 0)
+        HStack(alignment: .top, spacing: 16) {
+            providerPicker
+                .frame(width: 270)
+            keySetup
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -297,6 +245,7 @@ struct WebSearchSettingsView: View {
                             weight: provider == viewModel.selectedProvider ? .semibold : .regular
                         ))
                     Spacer(minLength: 0)
+                    routeIndicators(for: provider)
                     connectionIndicator(for: provider)
                 }
                 .padding(.leading, 10)
@@ -325,6 +274,25 @@ struct WebSearchSettingsView: View {
     }
 
     @ViewBuilder
+    private func routeIndicators(for provider: WebSearchProvider) -> some View {
+        if viewModel.searchProvider == provider {
+            routeBadge("Search")
+        }
+        if viewModel.resolvedPageReaderProvider == provider {
+            routeBadge("Reader")
+        }
+    }
+
+    private func routeBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 8, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Color.secondary.opacity(0.1), in: Capsule())
+    }
+
+    @ViewBuilder
     private func connectionIndicator(for provider: WebSearchProvider) -> some View {
         switch viewModel.connectionStates[provider] ?? .disconnected {
         case .disconnected:
@@ -346,6 +314,8 @@ struct WebSearchSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(viewModel.selectedProvider.metadata.displayName)
                 .font(.system(size: 13, weight: .semibold))
+
+            routingActions
 
             HStack(spacing: 8) {
                 keyField
@@ -380,6 +350,12 @@ struct WebSearchSettingsView: View {
 
             statusView
 
+            if let status = viewModel.pageReaderStatus {
+                Label(status, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+            }
+
             Text("Browsing requests are sent to the selected third-party providers. API keys stay in macOS Keychain.")
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
@@ -387,6 +363,44 @@ struct WebSearchSettingsView: View {
         }
         .padding(16)
         .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var routingActions: some View {
+        HStack(spacing: 8) {
+            if viewModel.searchProvider == viewModel.selectedProvider {
+                Label("Search", systemImage: "checkmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else {
+                Button("Use for search") {
+                    viewModel.setSearchProvider(viewModel.selectedProvider)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            if viewModel.selectedProvider.supports(.read) {
+                if viewModel.resolvedPageReaderProvider == viewModel.selectedProvider {
+                    Label("Page reading", systemImage: "checkmark")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Button("Use for page reading") {
+                        let provider = viewModel.selectedProvider
+                        viewModel.setPageReaderProvider(
+                            provider == viewModel.searchProvider ? nil : provider
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .disabled(
+            viewModel.isTesting
+                || viewModel.selectedConnectionState == .disconnected
+        )
     }
 
     @ViewBuilder

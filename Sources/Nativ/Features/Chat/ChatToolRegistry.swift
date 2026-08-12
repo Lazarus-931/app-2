@@ -25,12 +25,11 @@ struct ChatToolExecutionOutcome {
 }
 
 struct ChatToolLoopGuard {
-    private var previousBatch: [String]?
+    private var seenBatches = Set<[String]>()
 
     mutating func allows(_ calls: [MLXChatToolCall]) -> Bool {
         let batch = calls.map(Self.signature).sorted()
-        defer { previousBatch = batch }
-        return batch != previousBatch
+        return seenBatches.insert(batch).inserted
     }
 
     static let repeatedCallPayload = """

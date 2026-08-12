@@ -172,6 +172,7 @@ targets:
       - path: Sources/Nativ/Utilities/ShellEnvironment.swift
       - path: Sources/Nativ/Features/Chat/ChatToolRegistry.swift
       - path: Sources/Nativ/Features/Chat/ChatCapabilitySelection.swift
+      - path: Sources/Nativ/Features/Chat/ChatWebSourcePresentation.swift
       - path: Sources/Nativ/Features/Chat/Tools/ChatImageTool.swift
       - path: Sources/Nativ/Features/Chat/Tools/ChatImageModelSelection.swift
       - path: Sources/Nativ/Features/Chat/Tools/ChatSystemStatsTool.swift
@@ -181,10 +182,18 @@ targets:
       - path: Sources/Nativ/Features/Chat/Tools/ChatWebSearchTool.swift
       - path: Sources/Nativ/Features/Chat/Tools/ChatWebReadTool.swift
       - path: Sources/Nativ/Features/Browsing/WebBrowsingError.swift
+      - path: Sources/Nativ/Features/Browsing/WebBrowsingProviderClient.swift
+      - path: Sources/Nativ/Features/Browsing/WebBrowsingRuntime.swift
       - path: Sources/Nativ/Features/Browsing/WebBrowsingTransport.swift
+      - path: Sources/Nativ/Features/Browsing/Providers/BraveBrowsingProvider.swift
+      - path: Sources/Nativ/Features/Browsing/Providers/ExaBrowsingProvider.swift
+      - path: Sources/Nativ/Features/Browsing/Providers/FirecrawlBrowsingProvider.swift
+      - path: Sources/Nativ/Features/Browsing/Providers/NimbleBrowsingProvider.swift
+      - path: Sources/Nativ/Features/Browsing/Providers/PerplexityBrowsingProvider.swift
       - path: Sources/Nativ/Features/Browsing/WebReadContentSelector.swift
       - path: Sources/Nativ/Features/Browsing/WebReadService.swift
       - path: Sources/Nativ/Features/Browsing/WebSearchProvider.swift
+      - path: Sources/Nativ/Features/Browsing/WebSearchService.swift
       - path: Sources/Nativ/Features/Browsing/WebSearchSettingsView.swift
       - path: Sources/Nativ/Features/Artifacts/Artifact.swift
       - path: Sources/Nativ/Features/Chat/ChatSessionStore.swift

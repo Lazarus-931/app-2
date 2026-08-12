@@ -5,15 +5,29 @@ import XCTest
 private actor StubWebReadHTTPClient: WebBrowsingHTTPClient {
     private let responseData: Data
     private let statusCode: Int
+    private let delayNanoseconds: UInt64
     private var requests: [URLRequest] = []
+    private var activeRequestCount = 0
+    private var maximumActiveRequestCount = 0
 
-    init(response: String, statusCode: Int = 200) {
+    init(
+        response: String,
+        statusCode: Int = 200,
+        delayNanoseconds: UInt64 = 0
+    ) {
         responseData = Data(response.utf8)
         self.statusCode = statusCode
+        self.delayNanoseconds = delayNanoseconds
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         requests.append(request)
+        activeRequestCount += 1
+        maximumActiveRequestCount = max(maximumActiveRequestCount, activeRequestCount)
+        defer { activeRequestCount -= 1 }
+        if delayNanoseconds > 0 {
+            try await Task.sleep(nanoseconds: delayNanoseconds)
+        }
         guard let url = request.url else { throw URLError(.badURL) }
         return (
             responseData,
@@ -28,6 +42,10 @@ private actor StubWebReadHTTPClient: WebBrowsingHTTPClient {
 
     func recordedRequests() -> [URLRequest] {
         requests
+    }
+
+    func maximumConcurrentRequests() -> Int {
+        maximumActiveRequestCount
     }
 }
 
@@ -88,7 +106,7 @@ final class ChatWebReadToolTests: XCTestCase {
         let executor = ChatWebReadToolExecutor(
             credentials: StubWebReadCredentialStore(keys: [.brave: "key"]),
             preferences: preferences,
-            service: WebReadService(client: StubWebReadHTTPClient(response: "{}"))
+            client: StubWebReadHTTPClient(response: "{}")
         )
 
         do {
@@ -209,6 +227,24 @@ final class ChatWebReadToolTests: XCTestCase {
         XCTAssertEqual(body["removeBase64Images"] as? Bool, true)
         XCTAssertEqual(pages.first?.title, "Example")
         XCTAssertEqual(pages.first?.content, "Firecrawl page")
+    }
+
+    func testIndependentPageReadsRunConcurrentlyAndPreserveOrder() async throws {
+        let client = StubWebReadHTTPClient(
+            response: #"{"success":true,"data":{"markdown":"Page"}}"#,
+            delayNanoseconds: 30_000_000
+        )
+        let urls = ["https://example.com/one", "https://example.com/two"]
+
+        let pages = try await WebReadService(client: client).read(
+            provider: .firecrawl,
+            apiKey: "key",
+            urls: urls
+        )
+
+        let maximumConcurrentRequests = await client.maximumConcurrentRequests()
+        XCTAssertEqual(pages.map(\.url), urls)
+        XCTAssertEqual(maximumConcurrentRequests, 2)
     }
 
     func testReadOutputHasAPerPageAndTotalBudget() async throws {
@@ -357,7 +393,7 @@ final class ChatWebReadToolTests: XCTestCase {
         let executor = ChatWebReadToolExecutor(
             credentials: StubWebReadCredentialStore(keys: [.exa: "key"]),
             preferences: preferences,
-            service: WebReadService(client: client)
+            client: client
         )
 
         let payload = try await executor.execute(call: MLXChatToolCall(

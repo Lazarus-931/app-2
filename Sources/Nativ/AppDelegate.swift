@@ -343,9 +343,10 @@ private final class ModelMenuSectionHeaderView: NSView {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     private let model = NativModel()
     let softwareUpdater = SoftwareUpdater()
+    private let browsingExtension = BrowsingExtension()
     private let voiceDictationExtension = VoiceDictationExtension()
     private lazy var extensionManager = NativExtensionManager(
-        builtInExtensions: [voiceDictationExtension]
+        builtInExtensions: [browsingExtension, voiceDictationExtension]
     )
     private let controlPanelNavigation = ControlPanelNavigation()
     private let runtime = SystemRuntimeMonitor()

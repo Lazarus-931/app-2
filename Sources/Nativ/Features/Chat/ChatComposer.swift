@@ -94,6 +94,8 @@ struct ChatComposer: View {
     @State private var didApplyInitialReasoningDefault = false
     @State private var showsKits = false
     @State private var showsCapabilities = false
+    @State private var isWebSearchAvailable = false
+    @State private var isDeepResearchAvailable = false
     private let textInset = EdgeInsets(top: 14, leading: 14, bottom: 10, trailing: 14)
     private let editorMinimumHeight: CGFloat = 64
     private let editorMaximumHeight: CGFloat = 120
@@ -192,9 +194,16 @@ struct ChatComposer: View {
                     ChatComposerActionMenu(
                         isEnabled: canCompose,
                         canPasteImage: viewModel.canPasteImage,
+                        showsBrowsingCapabilities: true,
+                        isWebSearchSelected: viewModel.isCapabilitySelected(webSearchReference),
+                        isWebSearchAvailable: isWebSearchAvailable,
+                        isDeepResearchSelected: viewModel.isCapabilitySelected(deepResearchReference),
+                        isDeepResearchAvailable: isDeepResearchAvailable,
                         onAttachImages: viewModel.chooseImageAttachments,
                         onPasteImage: viewModel.pasteImageFromClipboard,
                         onCaptureScreenshot: viewModel.captureScreenshot,
+                        onToggleWebSearch: { viewModel.toggleCapability(webSearchReference) },
+                        onToggleDeepResearch: { viewModel.toggleCapability(deepResearchReference) },
                         onOpenKits: { showsKits = true },
                         onOpenCapabilities: { showsCapabilities = true }
                     )
@@ -244,6 +253,12 @@ struct ChatComposer: View {
         .task(id: modelScanKey) {
             localLibrary.scan(searchPaths: model.settings.localModelSearchPaths)
         }
+        .onAppear {
+            refreshBrowsingAvailability()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .webBrowsingConfigurationDidChange)) { _ in
+            refreshBrowsingAvailability()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .localModelLibraryDidChange)) { _ in
             localLibrary.scan(searchPaths: model.settings.localModelSearchPaths)
         }
@@ -273,6 +288,21 @@ struct ChatComposer: View {
 
     private var modelScanKey: String {
         model.settings.localModelSearchPaths.cacheKey
+    }
+
+    private var webSearchReference: ChatCapabilityReference {
+        .capability(.builtInTool(ChatWebSearchToolRegistry.toolName))
+    }
+
+    private var deepResearchReference: ChatCapabilityReference {
+        .capability(.skill(NativSkill.deepResearchID))
+    }
+
+    private func refreshBrowsingAvailability() {
+        isWebSearchAvailable = ChatWebSearchToolRegistry.isConfigured()
+        isDeepResearchAvailable = ChatToolRegistry.areConfigured(
+            NativSkill.deepResearch.requiredBuiltInToolNames
+        )
     }
 
     private var modelPicker: some View {
@@ -1148,9 +1178,16 @@ private struct ChatComposerModelIcon: View {
 struct ChatComposerActionMenu: NSViewRepresentable {
     let isEnabled: Bool
     let canPasteImage: Bool
+    var showsBrowsingCapabilities = false
+    var isWebSearchSelected = false
+    var isWebSearchAvailable = false
+    var isDeepResearchSelected = false
+    var isDeepResearchAvailable = false
     let onAttachImages: () -> Void
     let onPasteImage: () -> Void
     let onCaptureScreenshot: () -> Void
+    var onToggleWebSearch: () -> Void = {}
+    var onToggleDeepResearch: () -> Void = {}
     var onOpenKits: (() -> Void)? = nil
     var onOpenCapabilities: (() -> Void)? = nil
 
@@ -1236,6 +1273,24 @@ struct ChatComposerActionMenu: NSViewRepresentable {
             screenshotItem.isEnabled = true
             menu.addItem(screenshotItem)
 
+            if parent.showsBrowsingCapabilities {
+                menu.addItem(.separator())
+                menu.addItem(capabilityItem(
+                    title: "Web Search",
+                    systemName: "globe",
+                    isSelected: parent.isWebSearchSelected,
+                    isAvailable: parent.isWebSearchAvailable,
+                    action: #selector(toggleWebSearch(_:))
+                ))
+                menu.addItem(capabilityItem(
+                    title: "Deep Research",
+                    systemName: "sparkles",
+                    isSelected: parent.isDeepResearchSelected,
+                    isAvailable: parent.isDeepResearchAvailable,
+                    action: #selector(toggleDeepResearch(_:))
+                ))
+            }
+
             if parent.onOpenKits != nil || parent.onOpenCapabilities != nil {
                 menu.addItem(.separator())
             }
@@ -1277,6 +1332,14 @@ struct ChatComposerActionMenu: NSViewRepresentable {
             parent.onCaptureScreenshot()
         }
 
+        @objc private func toggleWebSearch(_ sender: NSMenuItem) {
+            parent.onToggleWebSearch()
+        }
+
+        @objc private func toggleDeepResearch(_ sender: NSMenuItem) {
+            parent.onToggleDeepResearch()
+        }
+
         @objc private func openKits(_ sender: NSMenuItem) {
             parent.onOpenKits?()
         }
@@ -1292,6 +1355,25 @@ struct ChatComposerActionMenu: NSViewRepresentable {
             )?.withSymbolConfiguration(
                 NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
             )
+        }
+
+        private func capabilityItem(
+            title: String,
+            systemName: String,
+            isSelected: Bool,
+            isAvailable: Bool,
+            action: Selector
+        ) -> NSMenuItem {
+            let item = NSMenuItem(
+                title: isAvailable ? title : "\(title) — Set up Browsing",
+                action: action,
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.image = menuImage(systemName, description: title)
+            item.state = isSelected ? .on : .off
+            item.isEnabled = isAvailable || isSelected
+            return item
         }
 
     }

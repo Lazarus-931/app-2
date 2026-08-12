@@ -562,15 +562,15 @@ final class ChatToolRegistryTests: XCTestCase {
         } catch {}
     }
 
-    func testLoopGuardStopsOnlyAnIdenticalConsecutiveBatch() {
+    func testLoopGuardStopsAnIdenticalBatchAcrossARequest() {
         var guardState = ChatToolLoopGuard()
         let initial = [makeCall(name: "web_search", arguments: #"{"query":"swift actors"}"#)]
         let equivalent = [makeCall(name: "web_search", arguments: #"{ "query" : "swift actors" }"#)]
         let changed = [makeCall(name: "web_search", arguments: #"{"query":"swift actor isolation"}"#)]
 
         XCTAssertTrue(guardState.allows(initial))
-        XCTAssertFalse(guardState.allows(equivalent))
         XCTAssertTrue(guardState.allows(changed))
+        XCTAssertFalse(guardState.allows(equivalent))
     }
 
     func testSwitchModelIsUnreachableThroughGenericDispatcherExecute() async {

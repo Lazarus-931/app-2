@@ -286,7 +286,7 @@ private struct WebSearchToolConfigurationView: View {
             )
         }
         .padding(20)
-        .frame(width: 660)
+        .frame(width: 720)
     }
 }
 
