@@ -39,3 +39,17 @@ jobs:
 
       - name: Build app (unsigned Debug)
         run: make xcode-build
+
+      - name: Package app bundle
+        run: |
+          set -euo pipefail
+          app="build/NativDevelopmentDerivedData/Build/Products/Debug/Nativ.app"
+          [ -d "$app" ] || { echo "missing $app"; exit 1; }
+          ditto -c -k --keepParent "$app" "Nativ.app.zip"
+
+      - name: Upload app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nativ-pr281-merged
+          path: Nativ.app.zip
+          retention-days: 7
