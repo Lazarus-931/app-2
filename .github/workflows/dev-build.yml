@@ -39,3 +39,13 @@ jobs:
 
       - name: Build app (unsigned Debug)
         run: make xcode-build
+
+      - name: Package app
+        run: ditto -c -k --sequesterRsrc --keepParent build/NativDevelopmentDerivedData/Build/Products/Debug/Nativ.app Nativ-dev.zip
+
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nativ-dev
+          path: Nativ-dev.zip
+          if-no-files-found: error
